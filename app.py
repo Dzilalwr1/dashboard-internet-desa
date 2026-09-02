@@ -8,13 +8,38 @@ insight berada di `utils/data_processing.py`, `utils/analysis.py`,
 dan `utils/insights.py`.
 """
 
+import io
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import matplotlib.pyplot as plt
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image,
+    PageBreak,
+)
 
 from utils import analysis as an
 from utils import insights as ins
-from utils.data_processing import clean_data, load_excel, validate_columns
+from utils.constants import WARNA_HASIL_EVALUASI, URUTAN_HASIL_EVALUASI
+from utils.data_processing import (
+    load_excel,
+    validate_columns,
+    _deteksi_kolom_bulan,
+    _clean_coordinate_series,
+    clean_data,
+    get_location_snapshot
+)
 
 PAGE_TITLE = "Dashboard Analisis Internet Desa"
 LABEL_TANPA_ISP = "(Belum ada ISP / Belum Terpasang)"
@@ -34,34 +59,24 @@ def konfigurasi_halaman() -> None:
 
 def ambil_file_upload():
     st.sidebar.header("Data")
+
     uploaded_file = st.sidebar.file_uploader(
         "Upload file Excel (harus memiliki sheet 'Data Master')",
         type=["xlsx", "xls"],
     )
 
     tahun = st.sidebar.number_input(
-        "Tahun data pada file ini",
+        "Tahun data (sheet Data Master tidak memiliki kolom Tahun)",
         min_value=2000,
         max_value=2100,
         value=TAHUN_DEFAULT,
         step=1,
-        help=(
-            "Sheet Data Master hanya berisi nama bulan tanpa tahun, "
-            "sehingga tahun perlu ditentukan secara manual saat upload."
-        ),
     )
 
-    return uploaded_file, int(tahun)
+    return uploaded_file, tahun
 
 
-def muat_dan_validasi_data(uploaded_file, tahun: int) -> pd.DataFrame | None:
-    """
-    Memuat, memvalidasi struktur kolom, dan membersihkan data.
-
-    Mengembalikan None jika terjadi kegagalan pada salah satu tahap;
-    pesan error yang sesuai sudah ditampilkan ke pengguna sebelum
-    fungsi ini mengembalikan None.
-    """
+def muat_dan_validasi_data(uploaded_file, tahun) -> pd.DataFrame | None:
     try:
         df_mentah = load_excel(uploaded_file)
     except Exception as error:
@@ -69,6 +84,7 @@ def muat_dan_validasi_data(uploaded_file, tahun: int) -> pd.DataFrame | None:
         return None
 
     kolom_hilang = validate_columns(df_mentah)
+
     if kolom_hilang:
         st.error("Format file tidak sesuai kontrak data aplikasi.")
         st.write("Kolom yang belum ditemukan:")
@@ -81,9 +97,12 @@ def muat_dan_validasi_data(uploaded_file, tahun: int) -> pd.DataFrame | None:
         st.error(f"Data tidak dapat diproses: {error}")
         return None
 
-    st.sidebar.success(f"Data berhasil dimuat: {df_bersih['Location ID'].nunique():,} lokasi")
-    return df_bersih
+    st.sidebar.success(
+        f"Data berhasil dimuat: "
+        f"{df_bersih['Location ID'].nunique():,} lokasi"
+    )
 
+    return df_bersih
 
 def render_filter_sidebar(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -135,27 +154,145 @@ def render_filter_sidebar(df: pd.DataFrame) -> pd.DataFrame:
         & mask_isp
     ], periode_options["Periode Label"].tolist()
 
+def terapkan_warna_evaluasi(fig):
+    """
+    Memastikan warna kategori Hasil Evaluasi konsisten.
+    """
+    fig.update_layout(
+        legend_title_text="Hasil Evaluasi",
+    )
 
-def buat_bar_chart_persentase(data: pd.DataFrame, x: str, y: str, warna: str | None = None):
-    """
-    Bar chart dengan label persentase di atas setiap batang.
-    Dipakai berulang di beberapa tab sehingga dipusatkan di sini
-    untuk menghindari duplikasi konfigurasi Plotly.
-    """
-    fig = px.bar(data, x=x, y=y, text=y, color=warna)
-    fig.update_traces(texttemplate="%{text}%", textposition="outside")
+    for trace in fig.data:
+        nama = str(trace.name).upper().strip()
+
+        if nama in WARNA_HASIL_EVALUASI:
+            trace.marker.color = WARNA_HASIL_EVALUASI[nama]
+
     return fig
 
+
+def buat_bar_chart_persentase(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    warna: str | None = None,
+):
+    """
+    Bar chart dengan label persentase.
+    """
+    fig = px.bar(
+        data,
+        x=x,
+        y=y,
+        text=y,
+        color=warna,
+        category_orders=(
+            {"Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI}
+            if warna == "Hasil Evaluasi"
+            else None
+        ),
+        color_discrete_map=(
+            WARNA_HASIL_EVALUASI
+            if warna == "Hasil Evaluasi"
+            else None
+        ),
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:.1f}%",
+        textposition="outside",
+        cliponaxis=False,
+    )
+
+    fig.update_layout(
+        uniformtext_minsize=9,
+        uniformtext_mode="hide",
+        margin=dict(t=50),
+    )
+
+    if warna == "Hasil Evaluasi":
+        fig = terapkan_warna_evaluasi(fig)
+
+    return fig
+
+def buat_bar_chart_jumlah(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    warna: str | None = None,
+):
+    """
+    Bar chart untuk nilai jumlah dengan label angka.
+    """
+    fig = px.bar(
+        data,
+        x=x,
+        y=y,
+        text=y,
+        color=warna,
+        category_orders=(
+            {"Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI}
+            if warna == "Hasil Evaluasi"
+            else None
+        ),
+        color_discrete_map=(
+            WARNA_HASIL_EVALUASI
+            if warna == "Hasil Evaluasi"
+            else None
+        ),
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:,}",
+        textposition="outside",
+        cliponaxis=False,
+    )
+
+    fig.update_layout(
+        uniformtext_minsize=9,
+        uniformtext_mode="hide",
+        margin=dict(t=50),
+    )
+
+    if warna == "Hasil Evaluasi":
+        fig = terapkan_warna_evaluasi(fig)
+
+    return fig
 
 def render_tab_overview(df_terfilter: pd.DataFrame) -> None:
     st.subheader("Ringkasan Umum")
 
     kpi = an.get_kpi_summary(df_terfilter)
-    kolom = st.columns(4)
-    kolom[0].metric("Total Record", f"{kpi['total_record']:,}")
-    kolom[1].metric("Total Lokasi", f"{kpi['total_lokasi']:,}")
-    kolom[2].metric("Total Kabupaten", f"{kpi['total_kabupaten']:,}")
-    kolom[3].metric("Total ISP", f"{kpi['total_isp']:,}")
+    kolom = st.columns(5)
+    lokasi_prioritas = an.lokasi_prioritas(df_terfilter)
+    jumlah_desa_bermasalah = int(
+    lokasi_prioritas["Desa Bermasalah"].sum()
+    )
+
+    kolom[0].metric(
+    "Total Record",
+    f"{kpi['total_record']:,}"
+    )
+
+    kolom[1].metric(
+        "Total Lokasi",
+        f"{kpi['total_lokasi']:,}"
+    )
+
+    kolom[2].metric(
+        "Total Kabupaten",
+        f"{kpi['total_kabupaten']:,}"
+    )
+
+    kolom[3].metric(
+        "Total ISP",
+        f"{kpi['total_isp']:,}"
+    )
+
+    kolom[4].metric(
+        "Desa Bermasalah",
+        f"{jumlah_desa_bermasalah:,}"
+    )
 
     st.caption(
         "Total Lokasi dihitung dari kombinasi unik Kabupaten, Kecamatan, dan Desa, "
@@ -208,20 +345,43 @@ def render_tab_perbandingan_grup(df_terfilter: pd.DataFrame, kolom_grup: str) ->
         df_terfilter, kolom_grup
     )
     fig_komposisi = px.bar(
-        tabel_komposisi,
-        x=kolom_grup,
-        y="Persentase",
-        color="Hasil Evaluasi",
-        barmode="stack",
+    tabel_komposisi,
+    x=kolom_grup,
+    y="Persentase",
+    color="Hasil Evaluasi",
+    barmode="stack",
+    text="Persentase",
+    category_orders={
+        "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
+    },
+    color_discrete_map=WARNA_HASIL_EVALUASI,
     )
+
+    fig_komposisi.update_traces(
+        texttemplate="%{text:.1f}%",
+        textposition="inside",
+        insidetextanchor="middle",
+        cliponaxis=False,
+    )
+
+    fig_komposisi.update_layout(
+        yaxis_title="Persentase (%)",
+        margin=dict(t=40),
+    )
+
+    fig_komposisi = terapkan_warna_evaluasi(fig_komposisi)
+
     fig_komposisi.update_layout(xaxis_tickangle=-20)
     st.plotly_chart(fig_komposisi, use_container_width=True)
 
-    st.markdown(f"**Proporsi Lokasi Perlu Perhatian per {kolom_grup}**")
+    st.markdown(
+    f"**Proporsi Desa Bermasalah per {kolom_grup}**")
     proporsi_bermasalah = an.proporsi_bermasalah_per_grup(df_terfilter, kolom_grup)
     fig_proporsi = buat_bar_chart_persentase(
-        proporsi_bermasalah, x=kolom_grup, y="Persentase Bermasalah"
-    )
+    proporsi_bermasalah,
+    x=kolom_grup,
+    y="Persentase Bermasalah",)
+
     fig_proporsi.update_layout(xaxis_tickangle=-20)
     st.plotly_chart(fig_proporsi, use_container_width=True)
 
@@ -247,10 +407,23 @@ def render_tab_temporal(df_terfilter: pd.DataFrame, urutan_periode_label: list[s
         "tercatat yang masih sedikit."
     )
     fig_observasi = px.bar(
-        observasi_per_periode,
-        x="Periode Label",
-        y="Jumlah Lokasi Tercatat",
-        category_orders={"Periode Label": urutan_periode_label},
+    observasi_per_periode,
+    x="Periode Label",
+    y="Jumlah Lokasi Tercatat",
+    text="Jumlah Lokasi Tercatat",
+    category_orders={
+        "Periode Label": urutan_periode_label
+    },
+    )
+    
+    fig_observasi.update_traces(
+        texttemplate="%{text:,}",
+        textposition="outside",
+        cliponaxis=False,
+    )
+    
+    fig_observasi.update_layout(
+        margin=dict(t=50),
     )
     st.plotly_chart(fig_observasi, use_container_width=True)
 
@@ -272,8 +445,24 @@ def render_tab_temporal(df_terfilter: pd.DataFrame, urutan_periode_label: list[s
             y="Jumlah",
             color="Hasil Evaluasi",
             barmode="stack",
-            category_orders={"Periode Label": urutan_periode_label},
+            text="Jumlah",
+            category_orders={
+                "Periode Label": urutan_periode_label,
+                "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI,
+            },
+            color_discrete_map=WARNA_HASIL_EVALUASI,
         )
+
+        fig_evaluasi.update_traces(
+            texttemplate="%{text:,}",
+            textposition="inside",
+        )
+
+        fig_evaluasi.update_layout(
+            margin=dict(t=40),
+        )
+
+        fig_evaluasi = terapkan_warna_evaluasi(fig_evaluasi)
         st.plotly_chart(fig_evaluasi, use_container_width=True)
 
 
@@ -310,7 +499,19 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
         },
         zoom=PETA_ZOOM_LEVEL,
         height=PETA_TINGGI_PIKSEL,
+        category_orders={
+            "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
+        },
+        color_discrete_map=WARNA_HASIL_EVALUASI,
     )
+    
+    fig_peta.update_layout(
+        mapbox_style="open-street-map",
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        legend_title_text="Hasil Evaluasi",
+    )
+    
+    fig_peta = terapkan_warna_evaluasi(fig_peta)
     fig_peta.update_layout(
         mapbox_style="open-street-map", margin={"r": 0, "t": 0, "l": 0, "b": 0}
     )
@@ -320,18 +521,21 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
 def render_tab_lokasi_prioritas(df_terfilter: pd.DataFrame) -> None:
     st.subheader("Lokasi Prioritas Monitoring")
     st.caption(
-        "Metrik: kondisi evaluasi terkini, jumlah dan persentase periode dengan "
-        "kategori Penggunaan bermasalah (Belum Terpasang/Tidak Terdeteksi/Tidak Aktif). "
-        "Diurutkan: lokasi dengan evaluasi bermasalah dan persentase periode "
-        "bermasalah tertinggi ditampilkan lebih dulu."
+        "Desa Bermasalah hanya terdiri dari kategori "
+        "Tidak Aktif dan Belum Terpasang. "
+        "Kategori Kurang Optimal dan Tidak Optimal tetap "
+        "ditampilkan sebagai hasil evaluasi, tetapi tidak "
+        "dimasukkan ke perhitungan Desa Bermasalah."
     )
 
     lokasi_prioritas = an.lokasi_prioritas(df_terfilter)
     hanya_bermasalah = st.checkbox(
-        "Tampilkan hanya lokasi dengan Evaluasi Bermasalah", value=True
+        "Tampilkan hanya Desa Bermasalah",
+        value=True,
     )
+    
     data_tampil = (
-        lokasi_prioritas[lokasi_prioritas["Evaluasi Bermasalah"]]
+        lokasi_prioritas[lokasi_prioritas["Desa Bermasalah"]]
         if hanya_bermasalah
         else lokasi_prioritas
     )
@@ -342,6 +546,7 @@ def render_tab_lokasi_prioritas(df_terfilter: pd.DataFrame) -> None:
                 "Kondisi_Evaluasi_Terkini": "Kondisi Evaluasi Terkini",
                 "Total_Periode_Tercatat": "Total Periode Tercatat",
                 "Jumlah_Periode_Penggunaan_Bermasalah": "Jumlah Periode Penggunaan Bermasalah",
+                "Desa Bermasalah": "Desa Bermasalah",
             }
         ),
         use_container_width=True,
@@ -360,7 +565,6 @@ def render_tab_detail_data(df_terfilter: pd.DataFrame) -> None:
         file_name="internet_desa_terfilter.csv",
         mime="text/csv",
     )
-
 
 def main() -> None:
     konfigurasi_halaman()
@@ -405,7 +609,6 @@ def main() -> None:
         render_tab_lokasi_prioritas(df_terfilter)
     with tab_detail:
         render_tab_detail_data(df_terfilter)
-
 
 if __name__ == "__main__":
     main()

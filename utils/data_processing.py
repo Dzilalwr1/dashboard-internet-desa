@@ -24,12 +24,9 @@ supaya tidak diam-diam ditebak/disembunyikan -- lihat TAHAP 10):
 
 import pandas as pd
 
-# Baris header sebenarnya berada di baris kedua sheet Excel (baris
-# pertama kosong/merged), sehingga `header=1` diperlukan saat membaca.
 SHEET_NAME = "Data Master"
 HEADER_ROW = 1
 
-# Kolom mentah (raw) yang WAJIB ada pada sheet Data Master.
 REQUIRED_RAW_COLUMNS = [
     "NAMA KABUPATEN",
     "NAMA KECAMATAN",
@@ -41,9 +38,6 @@ REQUIRED_RAW_COLUMNS = [
     "STATUS",
     "HASIL EVALUASI",
 ]
-
-# Pemetaan nama kolom mentah (raw, dari Excel) ke nama kolom kanonik
-# yang dipakai di seluruh aplikasi (analysis.py, insights.py, app.py).
 RENAME_MAP = {
     "NAMA KABUPATEN": "Kabupaten",
     "NAMA KECAMATAN": "Kecamatan",
@@ -63,14 +57,6 @@ RENAME_MAP = {
     "LINK": "Link Website Desa",
 }
 
-# Urutan bulan tidak alfabetis, mengikuti kalender. Nomor bulan dipakai
-# untuk membangun kunci pengurutan kronologis (Tahun * 12 + Bulan No),
-# sehingga Januari tahun berikutnya tetap terurut setelah Desember,
-# bukan tersortir alfabetis. Kolom bulan yang benar-benar dipakai
-# dideteksi secara DINAMIS dari kolom yang ada pada file yang diunggah
-# (lihat `_deteksi_kolom_bulan`), bukan didaftar hardcode di sini,
-# supaya dashboard tetap reusable ketika kolom bulan baru ditambahkan
-# pada update data berikutnya.
 BULAN_NO_MAP = {
     "JANUARI": 1,
     "FEBRUARI": 2,
@@ -86,9 +72,6 @@ BULAN_NO_MAP = {
     "DESEMBER": 12,
 }
 
-# Rentang koordinat yang masuk akal untuk wilayah Kalimantan Timur /
-# Kalimantan Utara. Dipakai hanya untuk MENANDAI kewajaran koordinat,
-# bukan untuk mengubah/menghapus nilai asli.
 LAT_MIN, LAT_MAX = -5.0, 5.0
 LON_MIN, LON_MAX = 110.0, 120.0
 

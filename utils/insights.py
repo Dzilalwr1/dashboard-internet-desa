@@ -33,32 +33,42 @@ def insight_kondisi_terbanyak(df):
 
 def insight_kabupaten_bermasalah_tertinggi(df):
     """
-    Pola: data -> groupby Kabupaten -> hitung proporsi lokasi
-    bermasalah -> ranking -> ambil yang tertinggi -> generate kalimat.
+    Insight Kabupaten dengan proporsi Desa Bermasalah tertinggi.
+
+    Desa Bermasalah hanya:
+    TIDAK AKTIF dan BELUM TERPASANG.
     """
     tabel = an.proporsi_bermasalah_per_grup(df, "Kabupaten")
+
     if tabel.empty:
         return None
 
     teratas = tabel.iloc[0]
+
     return (
-        f"Kabupaten dengan proporsi lokasi berkategori perlu perhatian "
-        f"(Tidak Optimal/Kurang Optimal/Tidak Terdeteksi/Tidak Aktif/Belum Terpasang) "
-        f"tertinggi adalah **{teratas['Kabupaten']}**, yaitu {teratas['Persentase Bermasalah']:.1f}% "
-        f"dari {int(teratas['Jumlah_Lokasi'])} lokasi di kabupaten tersebut."
+        f"Kabupaten dengan proporsi **Desa Bermasalah** tertinggi adalah "
+        f"**{teratas['Kabupaten']}**, yaitu "
+        f"{teratas['Persentase Bermasalah']:.1f}% dari "
+        f"{int(teratas['Jumlah_Lokasi']):,} lokasi."
     )
 
 
 def insight_isp_bermasalah_tertinggi(df):
-    """Pola sama seperti di atas, dikelompokkan berdasarkan ISP."""
+    """
+    Insight ISP dengan proporsi Desa Bermasalah tertinggi.
+    """
     tabel = an.proporsi_bermasalah_per_grup(df, "ISP")
+
     if tabel.empty:
         return None
 
     teratas = tabel.iloc[0]
+
     return (
-        f"ISP dengan proporsi lokasi perlu perhatian tertinggi adalah **{teratas['ISP']}** "
-        f"({teratas['Persentase Bermasalah']:.1f}% dari {int(teratas['Jumlah_Lokasi'])} lokasi yang dilayani)."
+        f"ISP dengan proporsi **Desa Bermasalah** tertinggi adalah "
+        f"**{teratas['ISP']}**, yaitu "
+        f"{teratas['Persentase Bermasalah']:.1f}% dari "
+        f"{int(teratas['Jumlah_Lokasi']):,} lokasi yang dilayani."
     )
 
 
@@ -117,27 +127,39 @@ def insight_periode_terbaru_penggunaan(df):
 
 def insight_lokasi_prioritas(df):
     """
-    Pola: data -> hitung metrik lokasi prioritas -> hitung jumlah
-    lokasi dengan evaluasi bermasalah DAN persentase periode
-    bermasalah tinggi -> generate kalimat ringkasan (bukan menyebut
-    nama lokasi satu per satu, karena daftar lengkapnya sudah
-    ditampilkan sebagai tabel terpisah di dashboard).
+    Insight lokasi prioritas berdasarkan definisi Desa Bermasalah.
     """
     lp = an.lokasi_prioritas(df)
+
     if lp.empty:
         return None
 
-    jumlah_bermasalah = int(lp["Evaluasi Bermasalah"].sum())
+    jumlah_bermasalah = int(lp["Desa Bermasalah"].sum())
     total_lokasi = len(lp)
+
     selalu_bermasalah = int(
-        ((lp["Evaluasi Bermasalah"]) & (lp["Persentase Periode Bermasalah"] == 100)).sum()
+        (
+            lp["Desa Bermasalah"]
+            & (
+                lp["Persentase Periode Bermasalah"] == 100
+            )
+        ).sum()
+    )
+
+    persentase = (
+        jumlah_bermasalah / total_lokasi * 100
+        if total_lokasi
+        else 0
     )
 
     return (
-        f"Sebanyak {jumlah_bermasalah} dari {total_lokasi} lokasi ({jumlah_bermasalah/total_lokasi*100:.1f}%) "
-        f"saat ini berada dalam kondisi evaluasi yang perlu perhatian. Dari jumlah tersebut, "
-        f"{selalu_bermasalah} lokasi tercatat mengalami penggunaan bermasalah "
-        f"(belum terpasang/tidak terdeteksi/tidak aktif) di SELURUH periode yang tersedia."
+        f"Terdapat **{jumlah_bermasalah:,} Desa Bermasalah** "
+        f"dari {total_lokasi:,} lokasi ({persentase:.1f}%). "
+        f"Desa Bermasalah hanya mencakup kategori "
+        f"**Tidak Aktif** dan **Belum Terpasang**. "
+        f"Dari jumlah tersebut, {selalu_bermasalah:,} lokasi "
+        f"memiliki penggunaan bermasalah pada seluruh periode "
+        f"yang tercatat."
     )
 
 

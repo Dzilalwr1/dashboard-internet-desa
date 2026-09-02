@@ -27,31 +27,39 @@ import numpy as np
 import pandas as pd
 
 from utils.data_processing import get_location_snapshot
+from utils.constants import (
+    URUTAN_HASIL_EVALUASI,
+    WARNA_HASIL_EVALUASI,
+    KATEGORI_DESA_BERMASALAH,
+    PENGGUNAAN_BERMASALAH,
+)
 
-# Kategori Hasil Evaluasi yang dianggap membutuhkan perhatian untuk
-# tujuan monitoring. Ini adalah ATURAN ANALITIS dashboard, bukan
-# definisi resmi instansi.
-KATEGORI_PERLU_PERHATIAN = {
-    "TIDAK OPTIMAL",
-    "KURANG OPTIMAL",
-    "TIDAK TERDETEKSI",
-    "TIDAK AKTIF",
-    "BELUM TERPASANG",
-}
+def urutkan_hasil_evaluasi(df, kolom="Hasil Evaluasi"):
+    """
+    Mengurutkan kategori Hasil Evaluasi menggunakan urutan bisnis
+    yang telah ditentukan, bukan urutan alfabetis.
+    """
+    if df.empty or kolom not in df.columns:
+        return df
 
-# Kategori Penggunaan yang menandakan layanan tidak benar-benar terpakai
-# pada periode tersebut (dipakai untuk analisis lokasi prioritas).
-PENGGUNAAN_BERMASALAH = {
-    "BELUM TERPASANG",
-    "TIDAK TERDETEKSI",
-    "TIDAK AKTIF",
-}
+    hasil = df.copy()
 
+    hasil[kolom] = hasil[kolom].astype("string").str.upper().str.strip()
 
-# ---------------------------------------------------------------------
-# A. ANALISIS DESKRIPTIF
-# ---------------------------------------------------------------------
+    hasil["_Urutan Evaluasi"] = pd.Categorical(
+        hasil[kolom],
+        categories=URUTAN_HASIL_EVALUASI,
+        ordered=True,
+    )
 
+    return (
+        hasil
+        .sort_values("_Urutan Evaluasi")
+        .drop(columns="_Urutan Evaluasi")
+        .reset_index(drop=True)
+    )
+
+# ANALISIS DESKRIPTIF
 def get_kpi_summary(df):
     """
     KPI ringkas dihitung dari data yang sudah difilter.
@@ -75,33 +83,31 @@ def get_kpi_summary(df):
         "total_isp": df["ISP"].dropna().nunique(),
     }
 
-
 def distribusi_hasil_evaluasi(df, per_lokasi=True):
     """
     Distribusi kategori Hasil Evaluasi.
 
-    per_lokasi=True (default): dihitung dari satu snapshot per lokasi,
-    merepresentasikan kondisi saat ini di seluruh lokasi (tidak
-    duplikat karena banyak periode).
-
-    per_lokasi=False: dihitung dari seluruh baris yang difilter --
-    berguna ketika pengguna sudah memfilter ke satu periode tertentu,
-    di mana jumlah baris = jumlah lokasi pada periode itu.
+    Per lokasi menggunakan satu snapshot per Location ID agar
+    lokasi yang muncul di banyak bulan tidak dihitung berulang.
     """
     base = get_location_snapshot(df) if per_lokasi else df
 
     hasil = (
         base["Hasil Evaluasi"]
-        .value_counts(dropna=False)
+        .dropna()
+        .astype("string")
+        .str.upper()
+        .str.strip()
+        .value_counts()
         .rename_axis("Hasil Evaluasi")
         .reset_index(name="Jumlah")
     )
+
     hasil["Persentase"] = (
         hasil["Jumlah"] / hasil["Jumlah"].sum() * 100
     ).round(2)
 
-    return hasil
-
+    return urutkan_hasil_evaluasi(hasil)
 
 def distribusi_penggunaan(df):
     """
@@ -123,20 +129,21 @@ def distribusi_penggunaan(df):
 
     return hasil
 
-
-# ---------------------------------------------------------------------
-# B. ANALISIS KOMPARATIF (Kabupaten & ISP)
-# ---------------------------------------------------------------------
-
+# ANALISIS KOMPARATIF (Kabupaten & ISP)
 def komposisi_evaluasi_per_grup(df, kolom_grup):
     """
-    Komposisi (persentase) Hasil Evaluasi per grup (Kabupaten/ISP),
-    dihitung dari snapshot satu baris per lokasi supaya kelompok
-    dengan lebih banyak record/periode tidak otomatis tampak lebih
-    buruk hanya karena jumlah datanya lebih banyak.
+    Komposisi persentase Hasil Evaluasi per grup.
+    Satu lokasi hanya dihitung satu kali.
     """
     snap = get_location_snapshot(df)
-    snap = snap.dropna(subset=[kolom_grup])
+    snap = snap.dropna(subset=[kolom_grup]).copy()
+
+    snap["Hasil Evaluasi"] = (
+        snap["Hasil Evaluasi"]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+    )
 
     tabel = (
         snap.groupby(kolom_grup)["Hasil Evaluasi"]
@@ -147,6 +154,8 @@ def komposisi_evaluasi_per_grup(df, kolom_grup):
         .reset_index()
     )
 
+    tabel = urutkan_hasil_evaluasi(tabel)
+
     jumlah_lokasi = (
         snap.groupby(kolom_grup)["Location ID"]
         .nunique()
@@ -156,47 +165,58 @@ def komposisi_evaluasi_per_grup(df, kolom_grup):
 
     return tabel, jumlah_lokasi
 
-
 def komposisi_evaluasi_per_kabupaten(df):
     """Komposisi (%) Hasil Evaluasi untuk setiap Kabupaten."""
     return komposisi_evaluasi_per_grup(df, "Kabupaten")
-
 
 def komposisi_evaluasi_per_isp(df):
     """Komposisi (%) Hasil Evaluasi untuk setiap ISP."""
     return komposisi_evaluasi_per_grup(df, "ISP")
 
-
 def proporsi_bermasalah_per_grup(df, kolom_grup):
     """
-    Proporsi lokasi dengan Hasil Evaluasi termasuk kategori
-    "perlu perhatian" (lihat KATEGORI_PERLU_PERHATIAN), per grup
-    (Kabupaten atau ISP). Dipakai untuk ranking di modul insight,
-    dan untuk chart perbandingan yang lebih ringkas dari tabel
-    komposisi penuh.
+    Menghitung proporsi DESA BERMASALAH per Kabupaten/ISP.
+
+    Desa Bermasalah HANYA:
+    - TIDAK AKTIF
+    - BELUM TERPASANG
+
+    Setiap lokasi dihitung satu kali berdasarkan Location ID.
     """
     snap = get_location_snapshot(df).dropna(subset=[kolom_grup]).copy()
-    snap["Bermasalah"] = snap["Hasil Evaluasi"].isin(KATEGORI_PERLU_PERHATIAN)
+
+    snap["Hasil Evaluasi"] = (
+        snap["Hasil Evaluasi"]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+    )
+
+    snap["Desa Bermasalah"] = snap["Hasil Evaluasi"].isin(
+        KATEGORI_DESA_BERMASALAH
+    )
 
     hasil = (
         snap.groupby(kolom_grup)
         .agg(
             Jumlah_Lokasi=("Location ID", "nunique"),
-            Jumlah_Bermasalah=("Bermasalah", "sum"),
+            Jumlah_Bermasalah=("Desa Bermasalah", "sum"),
         )
         .reset_index()
     )
+
     hasil["Persentase Bermasalah"] = (
-        hasil["Jumlah_Bermasalah"] / hasil["Jumlah_Lokasi"] * 100
+        hasil["Jumlah_Bermasalah"]
+        / hasil["Jumlah_Lokasi"]
+        * 100
     ).round(2)
 
-    return hasil.sort_values("Persentase Bermasalah", ascending=False)
+    return hasil.sort_values(
+        "Persentase Bermasalah",
+        ascending=False,
+    ).reset_index(drop=True)
 
-
-# ---------------------------------------------------------------------
-# C. ANALISIS TEMPORAL (berbasis Penggunaan, lihat docstring modul)
-# ---------------------------------------------------------------------
-
+# ANALISIS TEMPORAL (berbasis Penggunaan, lihat docstring modul)
 def jumlah_observasi_per_periode(df):
     """
     Jumlah lokasi yang benar-benar memiliki catatan Penggunaan pada
@@ -216,7 +236,6 @@ def jumlah_observasi_per_periode(df):
         .sort_values("Periode Urutan")
     )
     return hasil
-
 
 def tren_penggunaan_bulanan(df):
     """
@@ -249,7 +268,6 @@ def tren_penggunaan_bulanan(df):
 
     return tabel.sort_values(["Periode Urutan", "Penggunaan"])
 
-
 def tren_evaluasi_terkini_per_periode_tersedia(df):
     """
     Menampilkan jumlah lokasi per kategori Hasil Evaluasi untuk setiap
@@ -271,11 +289,7 @@ def tren_evaluasi_terkini_per_periode_tersedia(df):
     )
     return tabel.sort_values(["Periode Urutan", "Hasil Evaluasi"])
 
-
-# ---------------------------------------------------------------------
-# D. ANALISIS SPASIAL
-# ---------------------------------------------------------------------
-
+# ANALISIS SPASIAL
 def data_peta(df):
     """
     Satu baris per lokasi dengan koordinat valid, siap dipakai untuk
@@ -286,41 +300,38 @@ def data_peta(df):
     snap = get_location_snapshot(df)
     return snap[snap["Koordinat Valid"] == True].copy()  # noqa: E712
 
-
-# ---------------------------------------------------------------------
-# E. ANALISIS LOKASI PRIORITAS
-# ---------------------------------------------------------------------
-
+# ANALISIS LOKASI PRIORITAS
 def lokasi_prioritas(df):
     """
-    Metrik sederhana untuk mengidentifikasi lokasi yang layak menjadi
-    perhatian monitoring, sesuai metodologi yang sudah disepakati:
+    Menghasilkan ranking lokasi prioritas monitoring.
 
-    1. `Kondisi Evaluasi Terkini`: nilai Hasil Evaluasi lokasi tsb.
-       (statis per lokasi).
-    2. `Jumlah Periode Penggunaan Bermasalah`: berapa periode Penggunaan
-       lokasi tsb. termasuk kategori PENGGUNAAN_BERMASALAH (BELUM
-       TERPASANG/TIDAK TERDETEKSI/TIDAK AKTIF).
-    3. `Total Periode Tercatat`: jumlah periode yang BENAR-BENAR
-       memiliki catatan Penggunaan untuk lokasi tsb. (bukan jumlah
-       baris hasil melt mentah). Ini penting karena sumber data tidak
-       memiliki panel lengkap -- sebagian lokasi belum tersurvei di
-       sebagian bulan.
-    4. `Persentase Periode Bermasalah`: (2) / (3) * 100. Bernilai
-       kosong (NA) jika lokasi belum memiliki satu pun periode
-       tercatat -- ditampilkan apa adanya sebagai "tidak ada data",
-       bukan diasumsikan 0% atau 100%.
+    Desa Bermasalah HANYA:
+    - TIDAK AKTIF
+    - BELUM TERPASANG
 
-    Lokasi diberi tanda `Evaluasi Bermasalah` jika kondisi terkininya
-    termasuk KATEGORI_PERLU_PERHATIAN. Pengurutan (ranking) memprioritaskan
-    lokasi yang evaluasi terkininya bermasalah DAN persentase periode
-    penggunaan bermasalahnya tinggi -- bukan skor gabungan yang rumit,
-    sesuai arahan untuk memulai dari metrik sederhana. Lokasi tanpa data
-    Penggunaan sama sekali tetap tercantum (ditandai lewat kondisi
-    evaluasi terkininya), hanya persentasenya yang kosong.
+    Kategori KURANG OPTIMAL dan TIDAK OPTIMAL tetap tersedia sebagai
+    informasi evaluasi, tetapi tidak dihitung sebagai Desa Bermasalah.
     """
     kerja = df.copy()
-    kerja["Penggunaan Bermasalah"] = kerja["Penggunaan"].isin(PENGGUNAAN_BERMASALAH)
+
+    kerja["Hasil Evaluasi"] = (
+        kerja["Hasil Evaluasi"]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+    )
+
+    kerja["Penggunaan"] = (
+        kerja["Penggunaan"]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+    )
+
+    kerja["Penggunaan Bermasalah"] = kerja["Penggunaan"].isin(
+        PENGGUNAAN_BERMASALAH
+    )
+
     kerja["Penggunaan Tercatat"] = kerja["Penggunaan"].notna()
 
     agregat = (
@@ -332,22 +343,40 @@ def lokasi_prioritas(df):
             ISP=("ISP", "first"),
             Kondisi_Evaluasi_Terkini=("Hasil Evaluasi", "first"),
             Total_Periode_Tercatat=("Penggunaan Tercatat", "sum"),
-            Jumlah_Periode_Penggunaan_Bermasalah=("Penggunaan Bermasalah", "sum"),
+            Jumlah_Periode_Penggunaan_Bermasalah=(
+                "Penggunaan Bermasalah",
+                "sum",
+            ),
         )
         .reset_index()
     )
 
-    penyebut = agregat["Total_Periode_Tercatat"].astype(float).replace(0, np.nan)
-    agregat["Persentase Periode Bermasalah"] = (
-        agregat["Jumlah_Periode_Penggunaan_Bermasalah"] / penyebut * 100
-    ).round(2)
-
-    agregat["Evaluasi Bermasalah"] = agregat["Kondisi_Evaluasi_Terkini"].isin(
-        KATEGORI_PERLU_PERHATIAN
+    penyebut = (
+        agregat["Total_Periode_Tercatat"]
+        .astype(float)
+        .replace(0, np.nan)
     )
 
+    agregat["Persentase Periode Bermasalah"] = (
+        agregat["Jumlah_Periode_Penggunaan_Bermasalah"]
+        / penyebut
+        * 100
+    ).round(2)
+
+    # DEFINISI BARU DESA BERMASALAH
+    agregat["Desa Bermasalah"] = agregat[
+        "Kondisi_Evaluasi_Terkini"
+    ].isin(KATEGORI_DESA_BERMASALAH)
+
+    # Tetap pertahankan nama lama agar fitur/filter dashboard
+    # tidak rusak.
+    agregat["Evaluasi Bermasalah"] = agregat["Desa Bermasalah"]
+
     agregat = agregat.sort_values(
-        by=["Evaluasi Bermasalah", "Persentase Periode Bermasalah"],
+        by=[
+            "Desa Bermasalah",
+            "Persentase Periode Bermasalah",
+        ],
         ascending=[False, False],
         na_position="last",
     )
