@@ -13,7 +13,9 @@ import io
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize, to_hex
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -31,14 +33,19 @@ from reportlab.platypus import (
 
 from utils import analysis as an
 from utils import insights as ins
-from utils.constants import WARNA_HASIL_EVALUASI, URUTAN_HASIL_EVALUASI
+from utils.constants import (
+    WARNA_HASIL_EVALUASI,
+    URUTAN_HASIL_EVALUASI,
+    WARNA_PENGGUNAAN,
+    URUTAN_PRIORITAS,
+    )
 from utils.data_processing import (
     load_excel,
     validate_columns,
     _deteksi_kolom_bulan,
     _clean_coordinate_series,
     clean_data,
-    get_location_snapshot
+    get_location_snapshot,
 )
 
 PAGE_TITLE = "Dashboard Analisis Internet Desa"
@@ -170,7 +177,6 @@ def terapkan_warna_evaluasi(fig):
 
     return fig
 
-
 def buat_bar_chart_persentase(
     data: pd.DataFrame,
     x: str,
@@ -178,27 +184,45 @@ def buat_bar_chart_persentase(
     warna: str | None = None,
 ):
     """
-    Bar chart dengan label persentase.
+    Bar chart persentase dengan warna berdasarkan nilai.
+    Nilai tinggi = hijau.
+    Nilai rendah = merah.
     """
+
     fig = px.bar(
         data,
         x=x,
         y=y,
         text=y,
-        color=warna,
-        category_orders=(
-            {"Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI}
-            if warna == "Hasil Evaluasi"
-            else None
-        ),
-        color_discrete_map=(
-            WARNA_HASIL_EVALUASI
-            if warna == "Hasil Evaluasi"
-            else None
-        ),
     )
 
+    nilai = pd.to_numeric(data[y], errors="coerce")
+
+    nilai_min = nilai.min()
+    nilai_max = nilai.max()
+
+    if nilai_max == nilai_min:
+        norm = Normalize(vmin=0, vmax=1)
+        posisi = [0.5] * len(nilai)
+    else:
+        norm = Normalize(
+            vmin=nilai_min,
+            vmax=nilai_max,
+        )
+        posisi = [
+            norm(v)
+            for v in nilai
+        ]
+
+    cmap = matplotlib.colormaps["RdYlGn"]
+
+    warna_bars = [
+        to_hex(cmap(p))
+        for p in posisi
+    ]
+
     fig.update_traces(
+        marker_color=warna_bars,
         texttemplate="%{text:.1f}%",
         textposition="outside",
         cliponaxis=False,
@@ -209,53 +233,6 @@ def buat_bar_chart_persentase(
         uniformtext_mode="hide",
         margin=dict(t=50),
     )
-
-    if warna == "Hasil Evaluasi":
-        fig = terapkan_warna_evaluasi(fig)
-
-    return fig
-
-def buat_bar_chart_jumlah(
-    data: pd.DataFrame,
-    x: str,
-    y: str,
-    warna: str | None = None,
-):
-    """
-    Bar chart untuk nilai jumlah dengan label angka.
-    """
-    fig = px.bar(
-        data,
-        x=x,
-        y=y,
-        text=y,
-        color=warna,
-        category_orders=(
-            {"Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI}
-            if warna == "Hasil Evaluasi"
-            else None
-        ),
-        color_discrete_map=(
-            WARNA_HASIL_EVALUASI
-            if warna == "Hasil Evaluasi"
-            else None
-        ),
-    )
-
-    fig.update_traces(
-        texttemplate="%{text:,}",
-        textposition="outside",
-        cliponaxis=False,
-    )
-
-    fig.update_layout(
-        uniformtext_minsize=9,
-        uniformtext_mode="hide",
-        margin=dict(t=50),
-    )
-
-    if warna == "Hasil Evaluasi":
-        fig = terapkan_warna_evaluasi(fig)
 
     return fig
 
@@ -407,21 +384,47 @@ def render_tab_temporal(df_terfilter: pd.DataFrame, urutan_periode_label: list[s
         "tercatat yang masih sedikit."
     )
     fig_observasi = px.bar(
-    observasi_per_periode,
-    x="Periode Label",
-    y="Jumlah Lokasi Tercatat",
-    text="Jumlah Lokasi Tercatat",
-    category_orders={
-        "Periode Label": urutan_periode_label
-    },
+        observasi_per_periode,
+        x="Periode Label",
+        y="Jumlah Lokasi Tercatat",
+        text="Jumlah Lokasi Tercatat",
+        category_orders={
+        "Periode Label": urutan_periode_label,
+        "Penggunaan": list(WARNA_PENGGUNAAN.keys()),
+        },
     )
-    
+
+    # Warna berdasarkan tinggi/rendahnya jumlah lokasi
+    nilai = pd.to_numeric(
+        observasi_per_periode["Jumlah Lokasi Tercatat"],
+        errors="coerce",
+    )
+
+    nilai_min = nilai.min()
+    nilai_max = nilai.max()
+
+    if nilai_max == nilai_min:
+        posisi = [0.5] * len(nilai)
+    else:
+        posisi = [
+            (v - nilai_min) / (nilai_max - nilai_min)
+            for v in nilai
+        ]
+
+    cmap = matplotlib.colormaps["RdYlGn"]
+
+    warna_bars = [
+        to_hex(cmap(p))
+        for p in posisi
+    ]
+
     fig_observasi.update_traces(
+        marker_color=warna_bars,
         texttemplate="%{text:,}",
         textposition="outside",
         cliponaxis=False,
     )
-    
+
     fig_observasi.update_layout(
         margin=dict(t=50),
     )
@@ -433,6 +436,7 @@ def render_tab_temporal(df_terfilter: pd.DataFrame, urutan_periode_label: list[s
         x="Periode Label",
         y="Persentase",
         color="Penggunaan",
+        color_discrete_map=WARNA_PENGGUNAAN,
         category_orders={"Periode Label": urutan_periode_label},
     )
     st.plotly_chart(fig_tren, use_container_width=True)

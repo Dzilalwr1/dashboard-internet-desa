@@ -169,7 +169,6 @@ def clean_data(df, tahun):
     df = df.copy()
 
     # Buang baris kosong (biasanya footer/separator di akhir sheet),
-    # dikenali dari kolom kunci Kabupaten yang kosong.
     df = df.dropna(subset=["NAMA KABUPATEN"])
 
     # Bersihkan whitespace pada seluruh kolom teks sebelum rename/melt.
@@ -200,7 +199,7 @@ def clean_data(df, tahun):
 
     df_panjang["Penggunaan"] = df_panjang["Penggunaan"].astype("string").str.strip()
 
-    # Konversi koordinat, membersihkan artefak penulisan terlebih dahulu.
+    # Konversi koordinat, membersihkan artefak penulisan.
     df_panjang["Koordinat Lintang"] = _clean_coordinate_series(df_panjang["Koordinat Lintang"])
     df_panjang["Koordinat Bujur"] = _clean_coordinate_series(df_panjang["Koordinat Bujur"])
 
@@ -209,10 +208,7 @@ def clean_data(df, tahun):
         & df_panjang["Koordinat Bujur"].between(LON_MIN, LON_MAX)
     )
 
-    # Identitas lokasi: Kabupaten + Kecamatan + Desa. Nama Desa saja
-    # TIDAK unik (beberapa desa memakai nama yang sama di kabupaten
-    # berbeda), sehingga kombinasi ini dipakai sebagai identitas lokasi
-    # di seluruh aplikasi.
+    # Identitas lokasi: Kabupaten + Kecamatan + Desa.
     df_panjang["Location ID"] = (
         df_panjang["Kabupaten"].astype("string").fillna("")
         + " | "

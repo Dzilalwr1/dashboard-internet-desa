@@ -1,4 +1,4 @@
-# Urutan kategori Hasil Evaluasi yang digunakan secara konsisten
+# Urutan kategori Hasil Evaluasi
 URUTAN_HASIL_EVALUASI = [
     "SANGAT OPTIMAL",
     "OPTIMAL",
@@ -8,7 +8,17 @@ URUTAN_HASIL_EVALUASI = [
     "BELUM TERPASANG",
 ]
 
-# Warna Hasil Evaluasi yang digunakan secara konsisten
+# Urutan prioritas lokasi: kondisi terburuk → terbaik
+URUTAN_PRIORITAS = {
+    "BELUM TERPASANG": 0,
+    "TIDAK AKTIF": 1,
+    "TIDAK OPTIMAL": 2,
+    "KURANG OPTIMAL": 3,
+    "OPTIMAL": 4,
+    "SANGAT OPTIMAL": 5,
+}
+
+# Warna Hasil Evaluasi
 WARNA_HASIL_EVALUASI = {
     "SANGAT OPTIMAL": "#006E00",   # hijau tua
     "OPTIMAL": "#00FF6E",          # hijau
@@ -24,9 +34,25 @@ KATEGORI_DESA_BERMASALAH = {
     "BELUM TERPASANG",
 }
 
-# Kategori Penggunaan yang menandakan layanan tidak benar-benar
+# Kategori Penggunaan Bermasalah
 PENGGUNAAN_BERMASALAH = {
     "BELUM TERPASANG",
     "TIDAK TERDETEKSI",
     "TIDAK AKTIF",
+}
+
+# Warna Periode Penggunaan
+WARNA_PENGGUNAAN = {
+    "0GB": "#7B0000",
+    "<= 1GB": "#FF3232",
+    "<= 10GB": "#FF3232",
+    "<= 50GB": "#F98425",
+    "<= 100GB": "#F98425",
+    "<= 150GB": "#C0C000",
+    "<= 200GB": "#C0C000",
+    "<= 500GB": "#2BB800",
+    "<= 1000GB": "#006E1A",
+    ">1000GB": "#003A7D",
+    "BELUM TERPASANG": "#723B00",
+    "TIDAK TERDETEKSI": "#383839",
 }

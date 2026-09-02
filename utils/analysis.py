@@ -29,6 +29,7 @@ import pandas as pd
 from utils.data_processing import get_location_snapshot
 from utils.constants import (
     URUTAN_HASIL_EVALUASI,
+    URUTAN_PRIORITAS,
     WARNA_HASIL_EVALUASI,
     KATEGORI_DESA_BERMASALAH,
     PENGGUNAAN_BERMASALAH,
@@ -372,13 +373,20 @@ def lokasi_prioritas(df):
     # tidak rusak.
     agregat["Evaluasi Bermasalah"] = agregat["Desa Bermasalah"]
 
+    agregat["_Urutan Prioritas"] = (
+        agregat["Kondisi_Evaluasi_Terkini"]
+        .map(URUTAN_PRIORITAS)
+    )
+
     agregat = agregat.sort_values(
         by=[
-            "Desa Bermasalah",
+            "_Urutan Prioritas",
             "Persentase Periode Bermasalah",
         ],
-        ascending=[False, False],
+        ascending=[True, False],
         na_position="last",
     )
+
+    agregat = agregat.drop(columns="_Urutan Prioritas")
 
     return agregat.reset_index(drop=True)
