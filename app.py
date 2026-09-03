@@ -485,40 +485,69 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
         st.info("Tidak ada lokasi dengan koordinat valid pada filter saat ini.")
         return
 
-    fig_peta = px.scatter_mapbox(
-        data_peta,
-        lat="Koordinat Lintang",
-        lon="Koordinat Bujur",
-        color="Hasil Evaluasi",
-        hover_name="Desa",
-        hover_data={
-            "Kecamatan": True,
-            "Kabupaten": True,
-            "ISP": True,
-            "Produk": True,
-            "Penggunaan": True,
-            "Hasil Evaluasi": True,
-            "Koordinat Lintang": False,
-            "Koordinat Bujur": False,
-        },
-        zoom=PETA_ZOOM_LEVEL,
-        height=PETA_TINGGI_PIKSEL,
-        category_orders={
-            "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
-        },
-        color_discrete_map=WARNA_HASIL_EVALUASI,
-    )
-    
-    fig_peta.update_layout(
-        mapbox_style="open-street-map",
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        legend_title_text="Hasil Evaluasi",
-    )
+    try:
+        fig_peta = px.scatter_map(
+            data_peta,
+            lat="Koordinat Lintang",
+            lon="Koordinat Bujur",
+            color="Hasil Evaluasi",
+            hover_name="Desa",
+            hover_data={
+                "Kecamatan": True,
+                "Kabupaten": True,
+                "ISP": True,
+                "Produk": True,
+                "Penggunaan": True,
+                "Hasil Evaluasi": True,
+                "Koordinat Lintang": False,
+                "Koordinat Bujur": False,
+            },
+            zoom=PETA_ZOOM_LEVEL,
+            height=PETA_TINGGI_PIKSEL,
+            category_orders={
+                "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
+            },
+            color_discrete_map=WARNA_HASIL_EVALUASI,
+        )
+        
+        fig_peta.update_layout(
+            map_style="open-street-map",
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            legend_title_text="Hasil Evaluasi",
+        )
+        
+    except AttributeError:
+        fig_peta = px.scatter_mapbox(
+            data_peta,
+            lat="Koordinat Lintang",
+            lon="Koordinat Bujur",
+            color="Hasil Evaluasi",
+            hover_name="Desa",
+            hover_data={
+                "Kecamatan": True,
+                "Kabupaten": True,
+                "ISP": True,
+                "Produk": True,
+                "Penggunaan": True,
+                "Hasil Evaluasi": True,
+                "Koordinat Lintang": False,
+                "Koordinat Bujur": False,
+            },
+            zoom=PETA_ZOOM_LEVEL,
+            height=PETA_TINGGI_PIKSEL,
+            category_orders={
+                "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
+            },
+            color_discrete_map=WARNA_HASIL_EVALUASI,
+        )
+        
+        fig_peta.update_layout(
+            mapbox_style="open-street-map",
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            legend_title_text="Hasil Evaluasi",
+        )
     
     fig_peta = terapkan_warna_evaluasi(fig_peta)
-    fig_peta.update_layout(
-        mapbox_style="open-street-map", margin={"r": 0, "t": 0, "l": 0, "b": 0}
-    )
     st.plotly_chart(fig_peta, use_container_width=True)
 
 
