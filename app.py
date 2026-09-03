@@ -221,10 +221,19 @@ def buat_bar_chart_persentase(
     """
     Bar chart persentase.
 
-    Untuk kolom "Hasil Evaluasi", warna mengikuti palet tetap
-    WARNA_HASIL_EVALUASI agar konsisten dengan tab Analisis Spasial.
-    Untuk kolom lain, warna berdasarkan nilai (tinggi = hijau,
-    rendah = merah).
+    Untuk kolom "Hasil Evaluasi" dan "Penggunaan", warna mengikuti
+    palet tetap (WARNA_HASIL_EVALUASI / WARNA_PENGGUNAAN) yang disusun
+    berdasarkan URUTAN kategorinya (mis. Penggunaan: dari 0GB hingga
+    >1000GB), BUKAN berdasarkan besar-kecilnya persentase bar tersebut.
+    Ini penting karena bar dengan persentase terbesar belum tentu
+    kategori "terbaik" -- kategori 0GB tetap harus tampil merah
+    (kondisi buruk) walau kebetulan jumlah lokasinya sedikit/banyak.
+    Warna ini juga konsisten dengan grafik tren Penggunaan pada tab
+    Analisis Temporal, yang memakai palet yang sama.
+
+    Untuk kolom lain (mis. proporsi bermasalah per Kabupaten/ISP),
+    warna tetap berdasarkan nilai (tinggi = hijau, rendah = merah),
+    karena di situ memang tidak ada urutan kategori intrinsik.
     """
 
     fig = px.bar(
@@ -237,6 +246,11 @@ def buat_bar_chart_persentase(
     if x == "Hasil Evaluasi":
         warna_bars = [
             WARNA_HASIL_EVALUASI.get(str(kategori).upper().strip(), "#808080")
+            for kategori in data[x]
+        ]
+    elif x == "Penggunaan":
+        warna_bars = [
+            WARNA_PENGGUNAAN.get(str(kategori).strip(), "#808080")
             for kategori in data[x]
         ]
     else:
