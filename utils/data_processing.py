@@ -72,6 +72,43 @@ BULAN_NO_MAP = {
     "DESEMBER": 12,
 }
 
+NORMALISASI_PENGGUNAAN = {
+    "0GB": "0GB",
+
+    "<= 1GB": "<= 1GB",
+    "<=1GB": "<= 1GB",
+
+    "<= 10GB": "<= 10GB",
+    "<=10GB": "<= 10GB",
+
+    "<= 50GB": "<= 50GB",
+    "<=50GB": "<= 50GB",
+
+    "<= 100GB": "<= 100GB",
+    "<=100GB": "<= 100GB",
+
+    "< 150GB": "<= 150GB",
+    "<150GB": "<= 150GB",
+    "<= 150GB": "<= 150GB",
+    "<=150GB": "<= 150GB",
+
+    "< 200GB": "<= 200GB",
+    "<200GB": "<= 200GB",
+    "<= 200GB": "<= 200GB",
+    "<=200GB": "<= 200GB",
+
+    "<= 500GB": "<= 500GB",
+    "<=500GB": "<= 500GB",
+
+    "<= 1000GB": "<= 1000GB",
+    "<=1000GB": "<= 1000GB",
+
+    ">1000GB": ">1000GB",
+
+    "BELUM TERPASANG": "BELUM TERPASANG",
+    "TIDAK TERDETEKSI": "TIDAK TERDETEKSI",
+}
+
 LAT_MIN, LAT_MAX = -5.0, 5.0
 LON_MIN, LON_MAX = 110.0, 120.0
 
@@ -197,7 +234,17 @@ def clean_data(df, tahun):
         value_name="Penggunaan",
     )
 
-    df_panjang["Penggunaan"] = df_panjang["Penggunaan"].astype("string").str.strip()
+    df_panjang["Penggunaan"] = (
+    df_panjang["Penggunaan"]
+    .astype("string")
+    .str.strip()
+    .str.replace(r"\s+", " ", regex=True)
+)
+
+    df_panjang["Penggunaan"] = (
+        df_panjang["Penggunaan"]
+        .replace(NORMALISASI_PENGGUNAAN)
+    )
 
     # Konversi koordinat, membersihkan artefak penulisan.
     df_panjang["Koordinat Lintang"] = _clean_coordinate_series(df_panjang["Koordinat Lintang"])

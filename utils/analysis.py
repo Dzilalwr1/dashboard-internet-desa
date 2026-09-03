@@ -29,6 +29,7 @@ import pandas as pd
 from utils.data_processing import get_location_snapshot
 from utils.constants import (
     URUTAN_HASIL_EVALUASI,
+    URUTAN_PENGGUNAAN,
     URUTAN_PRIORITAS,
     WARNA_HASIL_EVALUASI,
     KATEGORI_DESA_BERMASALAH,
@@ -110,6 +111,23 @@ def distribusi_hasil_evaluasi(df, per_lokasi=True):
 
     return urutkan_hasil_evaluasi(hasil)
 
+def urutkan_penggunaan(df, kolom="Penggunaan"):
+    """
+    Mengurutkan kategori Penggunaan menggunakan urutan bisnis
+    URUTAN_PENGGUNAAN (0GB hingga TIDAK TERDETEKSI), bukan urutan
+    pustaka/alfabetis. Kategori di luar urutan ditempatkan di akhir.
+    """
+    hasil = df.copy()
+    hasil["_Urutan"] = hasil[kolom].map(
+        {v: i for i, v in enumerate(URUTAN_PENGGUNAAN)}
+    )
+    hasil = hasil.sort_values(
+        "_Urutan",
+        key=lambda s: [x if x is not None else float("inf") for x in s],
+        na_position="last",
+    )
+    return hasil.drop(columns="_Urutan").reset_index(drop=True)
+
 def distribusi_penggunaan(df):
     """
     Distribusi kategori Penggunaan pada data yang difilter (per baris,
@@ -127,6 +145,8 @@ def distribusi_penggunaan(df):
     hasil["Persentase"] = (
         hasil["Jumlah"] / hasil["Jumlah"].sum() * 100
     ).round(2)
+
+    hasil = urutkan_penggunaan(hasil)
 
     return hasil
 

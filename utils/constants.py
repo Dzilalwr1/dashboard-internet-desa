@@ -1,4 +1,3 @@
-# Urutan kategori Hasil Evaluasi
 URUTAN_HASIL_EVALUASI = [
     "SANGAT OPTIMAL",
     "OPTIMAL",
@@ -8,7 +7,6 @@ URUTAN_HASIL_EVALUASI = [
     "BELUM TERPASANG",
 ]
 
-# Urutan prioritas lokasi: kondisi terburuk → terbaik
 URUTAN_PRIORITAS = {
     "BELUM TERPASANG": 0,
     "TIDAK AKTIF": 1,
@@ -18,30 +16,26 @@ URUTAN_PRIORITAS = {
     "SANGAT OPTIMAL": 5,
 }
 
-# Warna Hasil Evaluasi
 WARNA_HASIL_EVALUASI = {
-    "SANGAT OPTIMAL": "#006E00",   # hijau tua
-    "OPTIMAL": "#00FF6E",          # hijau
-    "KURANG OPTIMAL": "#FFD700",   # kuning
-    "TIDAK OPTIMAL": "#FF8C00",    # oranye
-    "TIDAK AKTIF": "#AD0000",      # merah tua
-    "BELUM TERPASANG": "#808080",  # abu-abu
+    "SANGAT OPTIMAL": "#006E00",
+    "OPTIMAL": "#00FF6E",
+    "KURANG OPTIMAL": "#FFD700",
+    "TIDAK OPTIMAL": "#FF8C00",
+    "TIDAK AKTIF": "#AD0000",
+    "BELUM TERPASANG": "#808080",
 }
 
-# Definisi RESMI untuk istilah "Desa Bermasalah" di dashboard.
 KATEGORI_DESA_BERMASALAH = {
     "TIDAK AKTIF",
     "BELUM TERPASANG",
 }
 
-# Kategori Penggunaan Bermasalah
 PENGGUNAAN_BERMASALAH = {
     "BELUM TERPASANG",
     "TIDAK TERDETEKSI",
     "TIDAK AKTIF",
 }
 
-# Warna Periode Penggunaan
 WARNA_PENGGUNAAN = {
     "0GB": "#7B0000",
     "<= 1GB": "#FF3232",
@@ -56,3 +50,18 @@ WARNA_PENGGUNAAN = {
     "BELUM TERPASANG": "#723B00",
     "TIDAK TERDETEKSI": "#383839",
 }
+
+URUTAN_PENGGUNAAN = [
+    "0GB",
+    "<= 1GB",
+    "<= 10GB",
+    "<= 50GB",
+    "<= 100GB",
+    "<= 150GB",
+    "<= 200GB",
+    "<= 500GB",
+    "<= 1000GB",
+    ">1000GB",
+    "BELUM TERPASANG",
+    "TIDAK TERDETEKSI",
+]

@@ -37,6 +37,7 @@ from utils.constants import (
     WARNA_HASIL_EVALUASI,
     URUTAN_HASIL_EVALUASI,
     WARNA_PENGGUNAAN,
+    URUTAN_PENGGUNAAN,
     URUTAN_PRIORITAS,
     )
 from utils.data_processing import (
@@ -47,12 +48,16 @@ from utils.data_processing import (
     clean_data,
     get_location_snapshot,
 )
+from utils.pdf_export import buat_pdf, buat_pdf_insight
 
 PAGE_TITLE = "Dashboard Analisis Internet Desa"
 LABEL_TANPA_ISP = "(Belum ada ISP / Belum Terpasang)"
 PETA_ZOOM_LEVEL = 6
 PETA_TINGGI_PIKSEL = 600
 TAHUN_DEFAULT = 2026
+
+# Pusat default peta = Kalimantan Timur (kawasan lokasi data).
+PETA_PUSAT_KALTIM = {"lat": 0.5, "lon": 116.5}
 
 
 def konfigurasi_halaman() -> None:
@@ -161,6 +166,36 @@ def render_filter_sidebar(df: pd.DataFrame) -> pd.DataFrame:
         & mask_isp
     ], periode_options["Periode Label"].tolist()
 
+@st.cache_data(show_spinner="Membuat laporan PDF (dengan grafik)...")
+def _buat_pdf_cache(df_terfilter: pd.DataFrame) -> bytes:
+    """
+    Wrapper ter-cache di sekitar `buat_pdf`.
+
+    PDF sekarang menyertakan grafik (bukan hanya tabel), sehingga proses
+    pembuatannya lebih berat. Tanpa cache, PDF ini akan dibangun ulang
+    dari nol setiap kali halaman Streamlit rerun -- misalnya setiap kali
+    pengguna mengganti tab atau membuka expander -- padahal isinya tidak
+    berubah selama filter/data yang sama. `st.cache_data` menyimpan hasil
+    berdasarkan isi `df_terfilter`, jadi PDF hanya dibangun ulang saat
+    filter atau data benar-benar berubah.
+    """
+    return buat_pdf(df_terfilter)
+
+
+def render_tombol_unduh_pdf(df_terfilter: pd.DataFrame) -> None:
+    """Tombol untuk mengunduh seluruh hasil analisis dalam bentuk PDF."""
+    st.sidebar.header("Ekspor Laporan")
+    try:
+        pdf_bytes = _buat_pdf_cache(df_terfilter)
+        st.sidebar.download_button(
+            "Unduh Laporan PDF",
+            data=pdf_bytes,
+            file_name="laporan_internet_desa.pdf",
+            mime="application/pdf",
+        )
+    except Exception as error:
+        st.sidebar.warning(f"PDF tidak dapat dibuat: {error}")
+
 def terapkan_warna_evaluasi(fig):
     """
     Memastikan warna kategori Hasil Evaluasi konsisten.
@@ -184,9 +219,12 @@ def buat_bar_chart_persentase(
     warna: str | None = None,
 ):
     """
-    Bar chart persentase dengan warna berdasarkan nilai.
-    Nilai tinggi = hijau.
-    Nilai rendah = merah.
+    Bar chart persentase.
+
+    Untuk kolom "Hasil Evaluasi", warna mengikuti palet tetap
+    WARNA_HASIL_EVALUASI agar konsisten dengan tab Analisis Spasial.
+    Untuk kolom lain, warna berdasarkan nilai (tinggi = hijau,
+    rendah = merah).
     """
 
     fig = px.bar(
@@ -196,30 +234,36 @@ def buat_bar_chart_persentase(
         text=y,
     )
 
-    nilai = pd.to_numeric(data[y], errors="coerce")
-
-    nilai_min = nilai.min()
-    nilai_max = nilai.max()
-
-    if nilai_max == nilai_min:
-        norm = Normalize(vmin=0, vmax=1)
-        posisi = [0.5] * len(nilai)
-    else:
-        norm = Normalize(
-            vmin=nilai_min,
-            vmax=nilai_max,
-        )
-        posisi = [
-            norm(v)
-            for v in nilai
+    if x == "Hasil Evaluasi":
+        warna_bars = [
+            WARNA_HASIL_EVALUASI.get(str(kategori).upper().strip(), "#808080")
+            for kategori in data[x]
         ]
+    else:
+        nilai = pd.to_numeric(data[y], errors="coerce")
 
-    cmap = matplotlib.colormaps["RdYlGn"]
+        nilai_min = nilai.min()
+        nilai_max = nilai.max()
 
-    warna_bars = [
-        to_hex(cmap(p))
-        for p in posisi
-    ]
+        if nilai_max == nilai_min:
+            norm = Normalize(vmin=0, vmax=1)
+            posisi = [0.5] * len(nilai)
+        else:
+            norm = Normalize(
+                vmin=nilai_min,
+                vmax=nilai_max,
+            )
+            posisi = [
+                norm(v)
+                for v in nilai
+            ]
+
+        cmap = matplotlib.colormaps["RdYlGn"]
+
+        warna_bars = [
+            to_hex(cmap(p))
+            for p in posisi
+        ]
 
     fig.update_traces(
         marker_color=warna_bars,
@@ -235,6 +279,13 @@ def buat_bar_chart_persentase(
     )
 
     return fig
+
+@st.cache_data(show_spinner="Membuat PDF insight...")
+def _buat_pdf_insight_cache(df_terfilter: pd.DataFrame) -> bytes:
+    """Wrapper ter-cache di sekitar `buat_pdf_insight` (lihat alasan
+    caching pada `_buat_pdf_cache`)."""
+    return buat_pdf_insight(df_terfilter)
+
 
 def render_tab_overview(df_terfilter: pd.DataFrame) -> None:
     st.subheader("Ringkasan Umum")
@@ -281,22 +332,56 @@ def render_tab_overview(df_terfilter: pd.DataFrame) -> None:
     with kolom_kiri:
         st.markdown("**Distribusi Hasil Evaluasi (per lokasi)**")
         dist_evaluasi = an.distribusi_hasil_evaluasi(df_terfilter)
-        st.plotly_chart(
-            buat_bar_chart_persentase(
-                dist_evaluasi, x="Hasil Evaluasi", y="Persentase", warna="Hasil Evaluasi"
-            ),
-            use_container_width=True,
+        fig_evaluasi = buat_bar_chart_persentase(
+            dist_evaluasi, x="Hasil Evaluasi", y="Persentase", warna="Hasil Evaluasi"
         )
+        fig_evaluasi.update_layout(
+            xaxis={
+                "categoryorder": "array",
+                "categoryarray": URUTAN_HASIL_EVALUASI,
+            },
+        )
+        st.plotly_chart(fig_evaluasi, use_container_width=True)
 
     with kolom_kanan:
         st.markdown("**Distribusi Penggunaan (seluruh baris terfilter)**")
         dist_penggunaan = an.distribusi_penggunaan(df_terfilter)
-        fig = buat_bar_chart_persentase(dist_penggunaan, x="Penggunaan", y="Persentase")
-        fig.update_layout(xaxis_tickangle=-30)
+
+        fig = buat_bar_chart_persentase(
+            dist_penggunaan,
+            x="Penggunaan",
+            y="Persentase"
+        )
+
+        fig.update_layout(
+        xaxis_tickangle=-30,
+        xaxis={
+            "categoryorder": "array",
+            "categoryarray": URUTAN_PENGGUNAAN,
+            },
+        )
+
         st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("**Insight Utama**")
+    kolom_judul_insight, kolom_tombol_insight = st.columns([4, 1])
+    with kolom_judul_insight:
+        st.markdown("**Insight Utama**")
+
     daftar_insight = ins.generate_all_insights(df_terfilter)
+
+    with kolom_tombol_insight:
+        try:
+            pdf_insight_bytes = _buat_pdf_insight_cache(df_terfilter)
+            st.download_button(
+                "Ekspor PDF",
+                data=pdf_insight_bytes,
+                file_name="insight_internet_desa.pdf",
+                mime="application/pdf",
+                key="unduh_pdf_insight",
+            )
+        except Exception as error:
+            st.warning(f"PDF insight tidak dapat dibuat: {error}")
+
     if not daftar_insight:
         st.write("Belum ada insight yang dapat dihitung dari data terfilter saat ini.")
         return
@@ -390,7 +475,7 @@ def render_tab_temporal(df_terfilter: pd.DataFrame, urutan_periode_label: list[s
         text="Jumlah Lokasi Tercatat",
         category_orders={
         "Periode Label": urutan_periode_label,
-        "Penggunaan": list(WARNA_PENGGUNAAN.keys()),
+        "Penggunaan": URUTAN_PENGGUNAAN,
         },
     )
 
@@ -485,6 +570,37 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
         st.info("Tidak ada lokasi dengan koordinat valid pada filter saat ini.")
         return
 
+    data_peta = data_peta.sort_values(
+        ["Kabupaten", "Kecamatan", "Desa"],
+        key=lambda s: s.astype("string").str.lower(),
+    ).reset_index(drop=True)
+
+    data_peta["Label Peta"] = (
+        data_peta["Desa"].astype("string")
+        + " — "
+        + data_peta["Kecamatan"].astype("string")
+        + ", "
+        + data_peta["Kabupaten"].astype("string")
+    )
+
+    pilihan = st.selectbox(
+        "Pilih lokasi untuk dipusatkan pada peta",
+        data_peta["Label Peta"],
+        index=None,
+        placeholder="Tampilkan semua lokasi (zoom default)...",
+    )
+
+    target = data_peta[data_peta["Label Peta"] == pilihan] if pilihan else pd.DataFrame()
+    if not target.empty:
+        pusat = {
+            "lat": float(target.iloc[0]["Koordinat Lintang"]),
+            "lon": float(target.iloc[0]["Koordinat Bujur"]),
+        }
+        zoom_peta = 13
+    else:
+        pusat = PETA_PUSAT_KALTIM
+        zoom_peta = PETA_ZOOM_LEVEL
+
     try:
         fig_peta = px.scatter_map(
             data_peta,
@@ -502,7 +618,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
                 "Koordinat Lintang": False,
                 "Koordinat Bujur": False,
             },
-            zoom=PETA_ZOOM_LEVEL,
+            center=pusat,
+            zoom=zoom_peta,
             height=PETA_TINGGI_PIKSEL,
             category_orders={
                 "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
@@ -533,7 +650,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
                 "Koordinat Lintang": False,
                 "Koordinat Bujur": False,
             },
-            zoom=PETA_ZOOM_LEVEL,
+            center=pusat,
+            zoom=zoom_peta,
             height=PETA_TINGGI_PIKSEL,
             category_orders={
                 "Hasil Evaluasi": an.URUTAN_HASIL_EVALUASI
@@ -546,7 +664,7 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
             margin={"r": 0, "t": 0, "l": 0, "b": 0},
             legend_title_text="Hasil Evaluasi",
         )
-    
+
     fig_peta = terapkan_warna_evaluasi(fig_peta)
     st.plotly_chart(fig_peta, use_container_width=True)
 
@@ -615,6 +733,8 @@ def main() -> None:
     if df_terfilter.empty:
         st.warning("Tidak ada data pada kombinasi filter yang dipilih.")
         return
+
+    render_tombol_unduh_pdf(df_terfilter)
 
     tab_overview, tab_wilayah, tab_isp, tab_temporal, tab_spasial, tab_prioritas, tab_detail = st.tabs(
         [
