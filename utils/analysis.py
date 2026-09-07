@@ -1,52 +1,30 @@
-"""
-Modul analisis untuk Dashboard Internet Desa.
-
-Semua fungsi di sini bersifat murni: menerima DataFrame yang sudah
-dibersihkan (hasil `data_processing.clean_data`) dan mengembalikan
-DataFrame/nilai hasil analisis. Tidak ada logika UI (Streamlit) di sini,
-sehingga dapat diuji dan digunakan ulang secara independen.
-
-Konsep unit analisis:
-- RECORD  = satu baris (satu lokasi pada satu periode/bulan tertentu).
-- LOKASI  = satu kombinasi Kabupaten + Kecamatan + Desa (`Location ID`),
-  yang dapat muncul di banyak periode (baris) sekaligus.
-
-Temuan penting dari eksplorasi dataset (lihat catatan pengembangan):
-`Hasil Evaluasi`, `ISP`, `Produk`, `Status`, dan koordinat bersifat
-STATIS per lokasi -- nilainya sama di semua periode untuk lokasi yang
-sama. Satu-satunya kolom yang benar-benar berubah dari bulan ke bulan
-adalah `Penggunaan`. Karena itu:
-- Analisis deskriptif & komparatif berbasis `Hasil Evaluasi` dihitung
-  per LOKASI (snapshot), bukan per baris, agar tidak menghitung lokasi
-  yang sama 8 kali.
-- Analisis temporal difokuskan pada tren `Penggunaan` per bulan,
-  karena itulah dimensi yang benar-benar longitudinal di dataset ini.
-"""
+"""Fungsi analisis data untuk Dashboard Internet Desa."""
 
 import numpy as np
 import pandas as pd
 
-from utils.data_processing import get_location_snapshot
 from utils.constants import (
+    KATEGORI_DESA_BERMASALAH,
+    PENGGUNAAN_BERMASALAH,
     URUTAN_HASIL_EVALUASI,
     URUTAN_PENGGUNAAN,
     URUTAN_PRIORITAS,
-    WARNA_HASIL_EVALUASI,
-    KATEGORI_DESA_BERMASALAH,
-    PENGGUNAAN_BERMASALAH,
 )
+from utils.data_processing import get_location_snapshot
 
 def urutkan_hasil_evaluasi(df, kolom="Hasil Evaluasi"):
-    """
-    Mengurutkan kategori Hasil Evaluasi menggunakan urutan bisnis
-    yang telah ditentukan, bukan urutan alfabetis.
-    """
+    """Mengurutkan kategori hasil evaluasi sesuai urutan bisnis."""
     if df.empty or kolom not in df.columns:
         return df
 
     hasil = df.copy()
 
-    hasil[kolom] = hasil[kolom].astype("string").str.upper().str.strip()
+    hasil[kolom] = (
+        hasil[kolom]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+    )
 
     hasil["_Urutan Evaluasi"] = pd.Categorical(
         hasil[kolom],
@@ -63,21 +41,7 @@ def urutkan_hasil_evaluasi(df, kolom="Hasil Evaluasi"):
 
 # ANALISIS DESKRIPTIF
 def get_kpi_summary(df):
-    """
-    KPI ringkas dihitung dari data yang sudah difilter.
-
-    Total Lokasi dihitung dari Location ID unik (bukan jumlah baris),
-    agar satu lokasi yang muncul di beberapa periode tidak dihitung
-    berulang kali.
-
-    Total Record dihitung dari jumlah OBSERVASI BULANAN yang benar-benar
-    tercatat (Penggunaan tidak kosong) -- bukan jumlah baris hasil melt
-    mentah. Ini penting karena sumber data (Data Master) tidak memiliki
-    panel lengkap: lokasi yang belum pernah aktif bisa saja tidak
-    memiliki satu pun catatan Penggunaan bulanan, sehingga baris
-    "placeholder" hasil melt untuk bulan yang memang tidak disurvei
-    tidak dihitung sebagai record.
-    """
+    """Menghitung KPI utama dari data yang sudah difilter."""
     return {
         "total_record": int(df["Penggunaan"].notna().sum()),
         "total_lokasi": df["Location ID"].nunique(),
@@ -86,12 +50,7 @@ def get_kpi_summary(df):
     }
 
 def distribusi_hasil_evaluasi(df, per_lokasi=True):
-    """
-    Distribusi kategori Hasil Evaluasi.
-
-    Per lokasi menggunakan satu snapshot per Location ID agar
-    lokasi yang muncul di banyak bulan tidak dihitung berulang.
-    """
+    """Menghitung distribusi kategori hasil evaluasi."""
     base = get_location_snapshot(df) if per_lokasi else df
 
     hasil = (
@@ -106,34 +65,38 @@ def distribusi_hasil_evaluasi(df, per_lokasi=True):
     )
 
     hasil["Persentase"] = (
-        hasil["Jumlah"] / hasil["Jumlah"].sum() * 100
+        hasil["Jumlah"]
+        / hasil["Jumlah"].sum()
+        * 100
     ).round(2)
 
     return urutkan_hasil_evaluasi(hasil)
 
 def urutkan_penggunaan(df, kolom="Penggunaan"):
-    """
-    Mengurutkan kategori Penggunaan menggunakan urutan bisnis
-    URUTAN_PENGGUNAAN (0GB hingga TIDAK TERDETEKSI), bukan urutan
-    pustaka/alfabetis. Kategori di luar urutan ditempatkan di akhir.
-    """
+    """Mengurutkan kategori penggunaan sesuai urutan bisnis."""
     hasil = df.copy()
+
     hasil["_Urutan"] = hasil[kolom].map(
-        {v: i for i, v in enumerate(URUTAN_PENGGUNAAN)}
+        {value: i for i, value in enumerate(URUTAN_PENGGUNAAN)}
     )
+
     hasil = hasil.sort_values(
         "_Urutan",
-        key=lambda s: [x if x is not None else float("inf") for x in s],
+        key=lambda series: [
+            value if value is not None else float("inf")
+            for value in series
+        ],
         na_position="last",
     )
-    return hasil.drop(columns="_Urutan").reset_index(drop=True)
+
+    return (
+        hasil
+        .drop(columns="_Urutan")
+        .reset_index(drop=True)
+    )
 
 def distribusi_penggunaan(df):
-    """
-    Distribusi kategori Penggunaan pada data yang difilter (per baris,
-    karena Penggunaan memang bervariasi per periode -- lihat docstring
-    modul).
-    """
+    """Menghitung distribusi kategori penggunaan internet."""
     base = df.dropna(subset=["Penggunaan"])
 
     hasil = (
@@ -142,20 +105,18 @@ def distribusi_penggunaan(df):
         .rename_axis("Penggunaan")
         .reset_index(name="Jumlah")
     )
+
     hasil["Persentase"] = (
-        hasil["Jumlah"] / hasil["Jumlah"].sum() * 100
+        hasil["Jumlah"]
+        / hasil["Jumlah"].sum()
+        * 100
     ).round(2)
 
-    hasil = urutkan_penggunaan(hasil)
+    return urutkan_penggunaan(hasil)
 
-    return hasil
-
-# ANALISIS KOMPARATIF (Kabupaten & ISP)
+# ANALISIS KOMPARATIF
 def komposisi_evaluasi_per_grup(df, kolom_grup):
-    """
-    Komposisi persentase Hasil Evaluasi per grup.
-    Satu lokasi hanya dihitung satu kali.
-    """
+    """Menghitung komposisi hasil evaluasi berdasarkan grup."""
     snap = get_location_snapshot(df)
     snap = snap.dropna(subset=[kolom_grup]).copy()
 
@@ -187,24 +148,17 @@ def komposisi_evaluasi_per_grup(df, kolom_grup):
     return tabel, jumlah_lokasi
 
 def komposisi_evaluasi_per_kabupaten(df):
-    """Komposisi (%) Hasil Evaluasi untuk setiap Kabupaten."""
+    """Menghitung komposisi hasil evaluasi per Kabupaten."""
     return komposisi_evaluasi_per_grup(df, "Kabupaten")
 
 def komposisi_evaluasi_per_isp(df):
-    """Komposisi (%) Hasil Evaluasi untuk setiap ISP."""
+    """Menghitung komposisi hasil evaluasi per ISP."""
     return komposisi_evaluasi_per_grup(df, "ISP")
 
 def proporsi_bermasalah_per_grup(df, kolom_grup):
-    """
-    Menghitung proporsi DESA BERMASALAH per Kabupaten/ISP.
-
-    Desa Bermasalah HANYA:
-    - TIDAK AKTIF
-    - BELUM TERPASANG
-
-    Setiap lokasi dihitung satu kali berdasarkan Location ID.
-    """
-    snap = get_location_snapshot(df).dropna(subset=[kolom_grup]).copy()
+    """Menghitung proporsi Desa Bermasalah per grup."""
+    snap = get_location_snapshot(df)
+    snap = snap.dropna(subset=[kolom_grup]).copy()
 
     snap["Hasil Evaluasi"] = (
         snap["Hasil Evaluasi"]
@@ -213,6 +167,7 @@ def proporsi_bermasalah_per_grup(df, kolom_grup):
         .str.strip()
     )
 
+    # Desa Bermasalah hanya TIDAK AKTIF dan BELUM TERPASANG.
     snap["Desa Bermasalah"] = snap["Hasil Evaluasi"].isin(
         KATEGORI_DESA_BERMASALAH
     )
@@ -232,23 +187,20 @@ def proporsi_bermasalah_per_grup(df, kolom_grup):
         * 100
     ).round(2)
 
-    return hasil.sort_values(
-        "Persentase Bermasalah",
-        ascending=False,
-    ).reset_index(drop=True)
+    return (
+        hasil
+        .sort_values(
+            "Persentase Bermasalah",
+            ascending=False,
+        )
+        .reset_index(drop=True)
+    )
 
-# ANALISIS TEMPORAL (berbasis Penggunaan, lihat docstring modul)
+# ANALISIS TEMPORAL
 def jumlah_observasi_per_periode(df):
-    """
-    Jumlah lokasi yang benar-benar memiliki catatan Penggunaan pada
-    setiap periode, diurutkan kronologis. Dipakai untuk transparansi:
-    sumber data (Data Master) tidak memiliki panel lengkap, sehingga
-    sebagian periode (terutama bulan-bulan terbaru yang belum lama
-    disurvei) bisa saja hanya memiliki sedikit sekali observasi --
-    statistik pada periode seperti itu tidak boleh dibaca sebagai
-    representasi kondisi keseluruhan.
-    """
+    """Menghitung jumlah observasi penggunaan pada setiap periode."""
     base = df.dropna(subset=["Penggunaan"])
+
     hasil = (
         base.groupby(["Periode Urutan", "Periode Label"])
         .size()
@@ -256,17 +208,11 @@ def jumlah_observasi_per_periode(df):
         .reset_index()
         .sort_values("Periode Urutan")
     )
+
     return hasil
 
 def tren_penggunaan_bulanan(df):
-    """
-    Distribusi proporsi kategori Penggunaan pada setiap periode,
-    diurutkan kronologis (Periode Urutan), bukan alfabetis.
-
-    Mengembalikan tabel long-format: Periode Label, Periode Urutan,
-    Penggunaan, Jumlah, Persentase -- siap dipakai untuk stacked
-    area/bar chart di app.py.
-    """
+    """Menghitung distribusi penggunaan internet per periode."""
     base = df.dropna(subset=["Penggunaan"])
 
     tabel = (
@@ -285,54 +231,44 @@ def tren_penggunaan_bulanan(df):
         .reset_index()
     )
 
-    tabel = tabel.merge(jumlah, on=["Periode Urutan", "Penggunaan"], how="left")
+    tabel = tabel.merge(
+        jumlah,
+        on=["Periode Urutan", "Penggunaan"],
+        how="left",
+    )
 
-    return tabel.sort_values(["Periode Urutan", "Penggunaan"])
+    return tabel.sort_values(
+        ["Periode Urutan", "Penggunaan"]
+    )
+
 
 def tren_evaluasi_terkini_per_periode_tersedia(df):
-    """
-    Menampilkan jumlah lokasi per kategori Hasil Evaluasi untuk setiap
-    periode yang ADA di data ter-filter.
-
-    Catatan penting: pada dataset ini Hasil Evaluasi bersifat statis
-    per lokasi (tidak berubah antar bulan), sehingga hasil fungsi ini
-    akan identik/flat di semua periode -- bukan bug, melainkan
-    karakteristik data. Fungsi ini tetap disediakan agar transparan
-    ketika ditampilkan (dengan catatan/insight yang menjelaskan hal
-    ini), tetapi tren yang sesungguhnya bermakna ada pada
-    `tren_penggunaan_bulanan`.
-    """
+    """Menghitung jumlah kategori evaluasi pada setiap periode."""
     tabel = (
         df.groupby(["Periode Urutan", "Periode Label"])["Hasil Evaluasi"]
         .value_counts()
         .rename("Jumlah")
         .reset_index()
     )
-    return tabel.sort_values(["Periode Urutan", "Hasil Evaluasi"])
+
+    return tabel.sort_values(
+        ["Periode Urutan", "Hasil Evaluasi"]
+    )
+
 
 # ANALISIS SPASIAL
+
 def data_peta(df):
-    """
-    Satu baris per lokasi dengan koordinat valid, siap dipakai untuk
-    peta. Lokasi dengan koordinat tidak valid (lihat
-    `data_processing.clean_data`) dikeluarkan dari peta, TAPI tetap
-    ada di data lain (tidak dihapus dari dataset).
-    """
+    """Mengambil snapshot lokasi dengan koordinat yang valid."""
     snap = get_location_snapshot(df)
-    return snap[snap["Koordinat Valid"] == True].copy()  # noqa: E712
+
+    return snap[snap["Koordinat Valid"]].copy()
+
 
 # ANALISIS LOKASI PRIORITAS
+
 def lokasi_prioritas(df):
-    """
-    Menghasilkan ranking lokasi prioritas monitoring.
-
-    Desa Bermasalah HANYA:
-    - TIDAK AKTIF
-    - BELUM TERPASANG
-
-    Kategori KURANG OPTIMAL dan TIDAK OPTIMAL tetap tersedia sebagai
-    informasi evaluasi, tetapi tidak dihitung sebagai Desa Bermasalah.
-    """
+    """Membuat ranking lokasi berdasarkan kondisi dan penggunaan."""
     kerja = df.copy()
 
     kerja["Hasil Evaluasi"] = (
@@ -355,6 +291,11 @@ def lokasi_prioritas(df):
 
     kerja["Penggunaan Tercatat"] = kerja["Penggunaan"].notna()
 
+    # Evaluasi adalah atribut lokasi; ambil dari snapshot periode terakhir
+    # agar "Kondisi Evaluasi Terkini" tidak bergantung pada urutan baris.
+    snapshot = get_location_snapshot(kerja)
+    evaluasi_terkini = snapshot.set_index("Location ID")["Hasil Evaluasi"]
+
     agregat = (
         kerja.groupby("Location ID")
         .agg(
@@ -362,14 +303,19 @@ def lokasi_prioritas(df):
             Kecamatan=("Kecamatan", "first"),
             Desa=("Desa", "first"),
             ISP=("ISP", "first"),
-            Kondisi_Evaluasi_Terkini=("Hasil Evaluasi", "first"),
-            Total_Periode_Tercatat=("Penggunaan Tercatat", "sum"),
+            Total_Periode_Tercatat=(
+                "Penggunaan Tercatat",
+                "sum",
+            ),
             Jumlah_Periode_Penggunaan_Bermasalah=(
                 "Penggunaan Bermasalah",
                 "sum",
             ),
         )
         .reset_index()
+    )
+    agregat["Kondisi_Evaluasi_Terkini"] = (
+        agregat["Location ID"].map(evaluasi_terkini)
     )
 
     penyebut = (
@@ -384,13 +330,11 @@ def lokasi_prioritas(df):
         * 100
     ).round(2)
 
-    # DEFINISI BARU DESA BERMASALAH
+    # Desa Bermasalah hanya berdasarkan hasil evaluasi.
     agregat["Desa Bermasalah"] = agregat[
         "Kondisi_Evaluasi_Terkini"
     ].isin(KATEGORI_DESA_BERMASALAH)
 
-    # Tetap pertahankan nama lama agar fitur/filter dashboard
-    # tidak rusak.
     agregat["Evaluasi Bermasalah"] = agregat["Desa Bermasalah"]
 
     agregat["_Urutan Prioritas"] = (
@@ -407,6 +351,8 @@ def lokasi_prioritas(df):
         na_position="last",
     )
 
-    agregat = agregat.drop(columns="_Urutan Prioritas")
-
-    return agregat.reset_index(drop=True)
+    return (
+        agregat
+        .drop(columns="_Urutan Prioritas")
+        .reset_index(drop=True)
+    )

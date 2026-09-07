@@ -1,28 +1,4 @@
-"""
-Ekspor hasil analisis dashboard Internet Desa menjadi PDF.
-
-Modul ini memakai ReportLab untuk menyusun laporan PDF yang memuat
-seluruh hasil perhitungan analisis, disajikan sebagai TABEL sekaligus
-GRAFIK (mengikuti visualisasi yang tampil pada dashboard). Grafik
-dirender lewat Matplotlib (backend "Agg", tanpa perlu tampilan/GUI)
-lalu disisipkan sebagai gambar PNG ke dalam PDF -- pendekatan ini tidak
-memerlukan dependensi tambahan seperti kaleido/chromium untuk
-merender chart Plotly menjadi gambar statis.
-
-Setiap bagian menjawab satu tab pada dashboard:
-
-- Ringkasan Umum (KPI + distribusi + grafik + insight)
-- Analisis Wilayah (per Kabupaten): tabel + grafik komposisi & proporsi
-- Analisis ISP: tabel + grafik komposisi & proporsi
-- Analisis Temporal: tabel + grafik jumlah observasi & tren penggunaan
-- Lokasi Prioritas: HANYA kategori Tidak Aktif & Belum Terpasang
-  (Desa Bermasalah), lengkap dengan grafik ringkasannya
-
-Bagian "Detail Data" sengaja TIDAK disertakan dalam ekspor PDF karena
-isinya adalah data mentah ter-filter baris-per-baris yang lebih sesuai
-diunduh sebagai CSV (lihat tombol unduh CSV di tab Detail Data pada
-dashboard) daripada dicetak sebagai tabel PDF yang bisa sangat panjang.
-"""
+"""Ekspor hasil analisis dashboard Internet Desa ke PDF."""
 
 import html
 import io
@@ -68,26 +44,22 @@ _WARNA_BARIS_ALTE = colors.HexColor("#F2F7FB")
 
 
 def _fmt_angka(v, ribuan=True):
-    """Format angka menjadi teks, menangani NaN/None dengan rapi."""
+    """Format angka untuk laporan."""
     if v is None:
         return "-"
     try:
         f = float(v)
         if f != f:  # NaN
             return "-"
+        if f.is_integer():
+            return f"{int(f):,}" if ribuan else str(int(f))
         return f"{f:,.2f}" if ribuan else f"{f:.2f}"
     except (TypeError, ValueError):
         return str(v)
 
 
 def _markdown_ke_reportlab(teks: str) -> str:
-    """
-    Konversi kalimat insight (memakai markdown ringan `**tebal**`) menjadi
-    markup yang dipahami ReportLab Paragraph (`<b>tebal</b>`).
-
-    Karakter XML khusus (&, <, >) di-escape lebih dulu supaya teks asli
-    tidak pernah dianggap sebagai tag oleh ReportLab.
-    """
+    """Konversi markdown ringan ke markup ReportLab."""
     aman = html.escape(teks, quote=False)
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", aman)
 
@@ -118,11 +90,7 @@ def _gaya():
     }
 
 
-# Gaya khusus untuk ISI SEL tabel (bukan judul/paragraf biasa). Nilai sel
-# dibungkus sebagai Paragraph memakai gaya ini supaya teks panjang
-# (nama desa/kecamatan, dsb.) melipat ke baris berikutnya di dalam sel,
-# bukan meluber/bertabrakan dengan kolom di sebelahnya saat lebar kolom
-# sempit -- ini penyebab utama tabel terlihat "kepenuhan/press" di PDF.
+# Gaya sel tabel untuk word-wrap teks panjang.
 _STYLE_SEL_TABEL = ParagraphStyle(
     name="SelTabel",
     fontName="Helvetica",
@@ -132,7 +100,7 @@ _STYLE_SEL_TABEL = ParagraphStyle(
 
 
 def _sel(nilai):
-    """Bungkus satu nilai sel sebagai Paragraph agar bisa word-wrap."""
+    """Bungkus nilai sel sebagai Paragraph."""
     if nilai is None:
         return "-"
     teks = str(nilai)
@@ -152,21 +120,14 @@ _STYLE_HEADER_TABEL = ParagraphStyle(
 
 
 def _sel_header(nilai):
-    """Bungkus label header sebagai Paragraph agar label panjang melipat
-    ke baris berikutnya di dalam sel header, bukan meluber ke header
-    kolom sebelahnya."""
+    """Bungkus label header sebagai Paragraph."""
     if nilai is None:
         return ""
     return Paragraph(html.escape(str(nilai), quote=False), _STYLE_HEADER_TABEL)
 
 
 def _gaya_tabel(data, col_widths=None, repeat=1):
-    """Tabel dasar dengan header berwarna dan zebra strip.
-
-    Baris header (baris pertama) selalu dibungkus sebagai Paragraph
-    supaya label kolom yang panjang ikut word-wrap, konsisten dengan
-    isi tabel yang sudah dibungkus lewat `_sel()`.
-    """
+    """Buat tabel dasar dengan header dan zebra strip."""
     if data:
         header_asli = data[0]
         header_dibungkus = [
@@ -198,11 +159,7 @@ def _gaya_tabel(data, col_widths=None, repeat=1):
 
 
 def _tabel_dari_df(df, kolom_label=None, kapital=True):
-    """Konversi DataFrame menjadi daftar baris tabel ReportLab.
-
-    Nilai sel dibungkus lewat `_sel()` (Paragraph) supaya teks panjang
-    melipat ke baris berikutnya, bukan meluber ke kolom sebelah.
-    """
+    """Konversi DataFrame menjadi baris tabel ReportLab."""
     if df is None or df.empty:
         return [["(tidak ada data)"]]
     kolom = list(df.columns)
@@ -220,14 +177,7 @@ _LEBAR_GRAFIK_CM = 17.5  # ~lebar halaman A4 usable dengan margin 1.5 cm kiri-ka
 
 
 def _simpan_grafik(fig, lebar_cm=_LEBAR_GRAFIK_CM):
-    """
-    Render figure Matplotlib menjadi flowable `Image` ReportLab.
-
-    Tinggi gambar dihitung otomatis dari rasio aspek PNG asli (bukan
-    lebar/tinggi tetap) supaya grafik tidak gepeng/meregang ketika
-    diskalakan ke lebar halaman. Figure ditutup setelah disimpan agar
-    tidak menumpuk di memori saat laporan memuat banyak grafik.
-    """
+    """Simpan figure Matplotlib sebagai Image ReportLab."""
     bufer = io.BytesIO()
     fig.savefig(bufer, format="png", dpi=160, bbox_inches="tight")
     plt.close(fig)
@@ -240,8 +190,7 @@ def _simpan_grafik(fig, lebar_cm=_LEBAR_GRAFIK_CM):
 
 
 def _warna_berdasar_nilai(nilai):
-    """Warna RdYlGn per-bar berdasar besar nilainya (tinggi = hijau,
-    rendah = merah), meniru `buat_bar_chart_persentase` pada app.py."""
+    """Buat warna bar berdasarkan nilai."""
     angka = pd.to_numeric(pd.Series(nilai), errors="coerce")
     vmin, vmax = angka.min(), angka.max()
     if pd.isna(vmin) or pd.isna(vmax) or vmax == vmin:
@@ -254,13 +203,7 @@ def _warna_berdasar_nilai(nilai):
 
 
 def _grafik_bar_persentase(df, kolom_x, kolom_y, urutan=None, label_y="Persentase (%)", persen=True):
-    """Bar chart nilai berwarna berdasar besarnya nilai (RdYlGn),
-    versi statis dari `buat_bar_chart_persentase` di app.py.
-
-    `persen=False` dipakai untuk grafik berbasis jumlah (bukan %),
-    misalnya jumlah lokasi per periode, agar label & sumbu-y tidak
-    salah dibubuhi tanda "%".
-    """
+    """Buat bar chart statis untuk PDF."""
     if df is None or df.empty:
         return None
     data = df.copy()
@@ -273,6 +216,11 @@ def _grafik_bar_persentase(df, kolom_x, kolom_y, urutan=None, label_y="Persentas
     if kolom_x == "Hasil Evaluasi":
         warna = [
             WARNA_HASIL_EVALUASI.get(str(kategori).upper().strip(), "#808080")
+            for kategori in data[kolom_x]
+        ]
+    elif kolom_x == "Penggunaan":
+        warna = [
+            WARNA_PENGGUNAAN.get(str(kategori).strip(), "#808080")
             for kategori in data[kolom_x]
         ]
     else:
@@ -303,9 +251,7 @@ def _grafik_bar_persentase(df, kolom_x, kolom_y, urutan=None, label_y="Persentas
 
 
 def _grafik_stacked_evaluasi(pivot_df, urutan=None):
-    """Stacked bar komposisi Hasil Evaluasi (%) per grup (Kabupaten/ISP),
-    memakai palet warna kategori `WARNA_HASIL_EVALUASI` yang sama
-    dengan dashboard."""
+    """Buat stacked bar komposisi hasil evaluasi."""
     if pivot_df is None or pivot_df.empty:
         return None
     urutan = urutan or URUTAN_HASIL_EVALUASI
@@ -338,8 +284,7 @@ def _grafik_stacked_evaluasi(pivot_df, urutan=None):
 
 
 def _grafik_area_tren_penggunaan(pivot_df, urutan=None):
-    """Stacked area chart tren Penggunaan (%) per periode, memakai
-    palet warna kategori `WARNA_PENGGUNAAN` yang sama dengan dashboard."""
+    """Buat stacked area tren penggunaan."""
     if pivot_df is None or pivot_df.empty:
         return None
     urutan = urutan or URUTAN_PENGGUNAAN
@@ -371,8 +316,7 @@ def _grafik_area_tren_penggunaan(pivot_df, urutan=None):
 
 
 def _grafik_pie_prioritas(df, kolom="Kondisi_Evaluasi_Terkini"):
-    """Pie chart komposisi kategori (Tidak Aktif vs Belum Terpasang) di
-    antara lokasi prioritas / Desa Bermasalah."""
+    """Buat pie chart komposisi Desa Bermasalah."""
     if df is None or df.empty or kolom not in df.columns:
         return None
     jumlah = df[kolom].value_counts()
@@ -395,7 +339,7 @@ def _grafik_pie_prioritas(df, kolom="Kondisi_Evaluasi_Terkini"):
 
 
 def _grafik_bar_top_kabupaten(df, kolom="Kabupaten", n=15, lebar_cm=9.0):
-    """Horizontal bar: Kabupaten dengan jumlah Desa Bermasalah terbanyak."""
+    """Buat bar horizontal Kabupaten prioritas."""
     if df is None or df.empty or kolom not in df.columns:
         return None
     jumlah = df[kolom].value_counts().sort_values(ascending=False).head(n)
@@ -479,16 +423,7 @@ def _grup_tabel_proporsi(df, kolom_grup):
 
 
 def _prioritas_tabel(df, kolom_label):
-    """
-    Tabel Lokasi Prioritas.
-
-    Hanya menampilkan kolom yang ada di `kolom_label` (whitelist + label),
-    dengan urutan mengikuti urutan dict tersebut -- ini penting supaya
-    kolom seperti "Location ID" (gabungan Kabupaten|Kecamatan|Desa yang
-    bisa >50 karakter) dan kolom duplikat lain tidak ikut ditampilkan dan
-    membuat tabel kepenuhan/tabrakan antar kolom. Nilai boolean diubah
-    menjadi "Ya"/"Tidak" agar lebih ringkas dan mudah dibaca.
-    """
+    """Buat tabel lokasi prioritas dengan kolom terpilih."""
     if df is None or df.empty:
         return _gaya_tabel([["(tidak ada data)"]])
 
@@ -498,20 +433,17 @@ def _prioritas_tabel(df, kolom_label):
         if tampil[k].dtype == bool:
             tampil[k] = tampil[k].map({True: "Ya", False: "Tidak"})
 
-    # Lebar kolom (cm) dipesan sesuai kebutuhan tampilan masing-masing
-    # kolom: nama wilayah/ISP butuh ruang lebih, kolom status/angka
-    # cukup sempit. Total dijaga di bawah lebar halaman A4 usable
-    # (~18 cm dengan margin 1.5 cm kiri-kanan).
+        # Lebar kolom dijaga agar tetap muat pada halaman A4.
     lebar_per_kolom = {
-        "Kabupaten": 2.3,
-        "Kecamatan": 2.3,
-        "Desa": 2.5,
-        "ISP": 2.1,
-        "Kondisi_Evaluasi_Terkini": 2.3,
-        "Total_Periode_Tercatat": 1.5,
-        "Jumlah_Periode_Penggunaan_Bermasalah": 1.7,
-        "Persentase Periode Bermasalah": 1.7,
-        "Desa Bermasalah": 1.4,
+        "Kabupaten": 2.2,
+        "Kecamatan": 2.2,
+        "Desa": 2.4,
+        "ISP": 2.0,
+        "Kondisi_Evaluasi_Terkini": 2.2,
+        "Total_Periode_Tercatat": 1.4,
+        "Jumlah_Periode_Penggunaan_Bermasalah": 1.6,
+        "Persentase Periode Bermasalah": 1.6,
+        "Desa Bermasalah": 1.9,
     }
     lebar_default = 2.0
     col_widths = [
@@ -525,16 +457,7 @@ def _prioritas_tabel(df, kolom_label):
 
 
 def buat_pdf(df):
-    """
-    Membangun seluruh laporan PDF dari DataFrame ter-filter.
-
-    Catatan: bagian "Detail Data" (data mentah baris-per-baris) SENGAJA
-    tidak disertakan dalam PDF -- lihat catatan modul di bagian atas
-    file ini. Gunakan tombol unduh CSV pada tab Detail Data di dashboard
-    jika data mentah ter-filter dibutuhkan.
-
-    Mengembalikan bytes PDF.
-    """
+    """Bangun laporan PDF lengkap dari DataFrame terfilter."""
     bufer = io.BytesIO()
     doc = SimpleDocTemplate(
         bufer,
@@ -550,6 +473,19 @@ def buat_pdf(df):
     elemen: list = []
 
     # ===== HALAMAN JUDUL =====
+    periode_label_urut = (
+        df[["Periode Urutan", "Periode Label"]]
+        .drop_duplicates()
+        .sort_values("Periode Urutan")["Periode Label"]
+        .tolist()
+    )
+    if len(periode_label_urut) == 0:
+        teks_periode = "-"
+    elif len(periode_label_urut) == 1:
+        teks_periode = periode_label_urut[0]
+    else:
+        teks_periode = f"{periode_label_urut[0]} s.d. {periode_label_urut[-1]}"
+
     elemen.append(Spacer(1, 2 * cm))
     elemen.append(Paragraph(JUDUL, styles["judul"]))
     elemen.append(Spacer(1, 0.5 * cm))
@@ -561,7 +497,14 @@ def buat_pdf(df):
             styles["isi"],
         )
     )
-    elemen.append(Spacer(1, 1 * cm))
+    elemen.append(Spacer(1, 0.5 * cm))
+    elemen.append(
+        Paragraph(f"Sumber data: Data Master", styles["kecil"])
+    )
+    elemen.append(
+        Paragraph(f"Periode data: {teks_periode}", styles["kecil"])
+    )
+    elemen.append(Spacer(1, 0.5 * cm))
     elemen.append(
         Paragraph(
             f"Dibuat pada: {datetime.now().strftime('%d %B %Y, %H:%M')}",
@@ -687,17 +630,13 @@ def buat_pdf(df):
     elemen.append(Spacer(1, 0.4 * cm))
     elemen.append(Paragraph("4.2 Distribusi Penggunaan per Periode (%)", styles["sub"]))
     tren = an.tren_penggunaan_bulanan(df)
-    # Urutan periode KRONOLOGIS (Januari -> dst mengikuti Periode Urutan),
-    # bukan urutan abjad label bulan. `pivot_table` mengurutkan index
-    # secara alfabetis secara default, jadi urutan baris harus dipaksa
-    # ulang lewat `reindex` memakai urutan asli dari `Periode Urutan`.
+    # Paksa urutan periode tetap kronologis, bukan alfabetis.
     urutan_periode_pdf = (
         tren[["Periode Urutan", "Periode Label"]]
         .drop_duplicates()
         .sort_values("Periode Urutan")["Periode Label"]
         .tolist()
     )
-    # pivot: baris = periode, kolom = kategori penggunaan
     tren_p = tren.pivot_table(
         index="Periode Label", columns="Penggunaan", values="Persentase", aggfunc="first"
     ).fillna(0)
@@ -781,8 +720,6 @@ def buat_pdf(df):
         }
         elemen.append(_prioritas_tabel(prioritas, label_prioritas))
 
-    # Catatan: bagian "Detail Data" sengaja tidak disertakan dalam PDF.
-    # Lihat docstring modul di bagian atas file ini.
 
     doc.build(
         elemen,
@@ -793,14 +730,7 @@ def buat_pdf(df):
 
 
 def buat_pdf_insight(df):
-    """
-    Membangun PDF ringkas yang hanya memuat Insight Utama (beserta KPI
-    singkat sebagai konteks), tanpa seluruh tabel analisis pada
-    `buat_pdf`. Dipakai oleh tombol ekspor yang ada langsung di bagian
-    Insight Utama pada tab Overview.
-
-    Mengembalikan bytes PDF.
-    """
+    """Bangun PDF ringkas berisi KPI dan insight utama."""
     judul = "Laporan Insight - Internet Desa"
     bufer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -868,7 +798,7 @@ def buat_pdf_insight(df):
 
 
 def _gambar_header_footer_insight(canvas, doc):
-    """Header & footer untuk laporan insight (judul lebih singkat)."""
+    """Gambar header dan footer PDF insight."""
     canvas.saveState()
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(_WARNA_JUDUL)
@@ -885,7 +815,7 @@ def _gambar_header_footer_insight(canvas, doc):
 
 
 def _gambar_header_footer(canvas, doc):
-    """Gambar header & footer pada setiap halaman laporan."""
+    """Gambar header dan footer PDF."""
     canvas.saveState()
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(_WARNA_JUDUL)

@@ -43,10 +43,7 @@ from utils.constants import (
 from utils.data_processing import (
     load_excel,
     validate_columns,
-    _deteksi_kolom_bulan,
-    _clean_coordinate_series,
     clean_data,
-    get_location_snapshot,
 )
 from utils.pdf_export import buat_pdf, buat_pdf_insight
 
@@ -77,34 +74,25 @@ def ambil_file_upload():
         type=["xlsx", "xls"],
     )
 
-    tahun = st.sidebar.number_input(
-        "Tahun data (sheet Data Master tidak memiliki kolom Tahun)",
-        min_value=2000,
-        max_value=2100,
-        value=TAHUN_DEFAULT,
-        step=1,
-    )
-
-    return uploaded_file, tahun
+    return uploaded_file
 
 
-def muat_dan_validasi_data(uploaded_file, tahun) -> pd.DataFrame | None:
+def muat_dan_validasi_data(uploaded_file) -> pd.DataFrame | None:
     try:
         df_mentah = load_excel(uploaded_file)
     except Exception as error:
         st.error(f"Gagal membaca file Excel: {error}")
         return None
 
-    kolom_hilang = validate_columns(df_mentah)
-
-    if kolom_hilang:
+    try:
+        validate_columns(df_mentah)
+    except ValueError as error:
         st.error("Format file tidak sesuai kontrak data aplikasi.")
-        st.write("Kolom yang belum ditemukan:")
-        st.write(kolom_hilang)
+        st.error(str(error))
         return None
 
     try:
-        df_bersih = clean_data(df_mentah, tahun=tahun)
+        df_bersih = clean_data(df_mentah, tahun=TAHUN_DEFAULT)
     except ValueError as error:
         st.error(f"Data tidak dapat diproses: {error}")
         return None
@@ -359,6 +347,15 @@ def render_tab_overview(df_terfilter: pd.DataFrame) -> None:
 
     with kolom_kanan:
         st.markdown("**Distribusi Penggunaan (seluruh baris terfilter)**")
+        jumlah_tercatat = int(df_terfilter["Penggunaan"].notna().sum())
+        jumlah_lokasi_terfilter = df_terfilter["Location ID"].nunique()
+        st.caption(
+            f"Dihitung dari {jumlah_tercatat} observasi bulanan yang benar-benar "
+            f"tercatat, dari {jumlah_lokasi_terfilter} lokasi pada filter saat ini. "
+            "Sumber data tidak memiliki panel lengkap -- pada filter periode yang "
+            "sempit, jumlah observasi bisa jauh lebih kecil dari jumlah lokasi, "
+            "sehingga persentase di bawah ini bisa tidak representatif."
+        )
         dist_penggunaan = an.distribusi_penggunaan(df_terfilter)
 
         fig = buat_bar_chart_persentase(
@@ -607,8 +604,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
     target = data_peta[data_peta["Label Peta"] == pilihan] if pilihan else pd.DataFrame()
     if not target.empty:
         pusat = {
-            "lat": float(target.iloc[0]["Koordinat Lintang"]),
-            "lon": float(target.iloc[0]["Koordinat Bujur"]),
+            "lat": float(target.iloc[0]["Latitude"]),
+            "lon": float(target.iloc[0]["Longitude"]),
         }
         zoom_peta = 13
     else:
@@ -618,8 +615,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
     try:
         fig_peta = px.scatter_map(
             data_peta,
-            lat="Koordinat Lintang",
-            lon="Koordinat Bujur",
+            lat="Latitude",
+            lon="Longitude",
             color="Hasil Evaluasi",
             hover_name="Desa",
             hover_data={
@@ -629,8 +626,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
                 "Produk": True,
                 "Penggunaan": True,
                 "Hasil Evaluasi": True,
-                "Koordinat Lintang": False,
-                "Koordinat Bujur": False,
+                "Latitude": False,
+                "Longitude": False,
             },
             center=pusat,
             zoom=zoom_peta,
@@ -650,8 +647,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
     except AttributeError:
         fig_peta = px.scatter_mapbox(
             data_peta,
-            lat="Koordinat Lintang",
-            lon="Koordinat Bujur",
+            lat="Latitude",
+            lon="Longitude",
             color="Hasil Evaluasi",
             hover_name="Desa",
             hover_data={
@@ -661,8 +658,8 @@ def render_tab_spasial(df_terfilter: pd.DataFrame) -> None:
                 "Produk": True,
                 "Penggunaan": True,
                 "Hasil Evaluasi": True,
-                "Koordinat Lintang": False,
-                "Koordinat Bujur": False,
+                "Latitude": False,
+                "Longitude": False,
             },
             center=pusat,
             zoom=zoom_peta,
@@ -734,12 +731,12 @@ def render_tab_detail_data(df_terfilter: pd.DataFrame) -> None:
 def main() -> None:
     konfigurasi_halaman()
 
-    uploaded_file, tahun = ambil_file_upload()
+    uploaded_file = ambil_file_upload()
     if uploaded_file is None:
         st.info("Silakan upload file Excel untuk memulai analisis.")
         return
 
-    df = muat_dan_validasi_data(uploaded_file, tahun)
+    df = muat_dan_validasi_data(uploaded_file)
     if df is None:
         return
 

@@ -1,3 +1,5 @@
+"""Konstanta dan aturan kategori dashboard Internet Desa."""
+
 URUTAN_HASIL_EVALUASI = [
     "SANGAT OPTIMAL",
     "OPTIMAL",

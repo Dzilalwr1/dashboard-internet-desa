@@ -1,207 +1,146 @@
-"""
-Modul insight untuk Dashboard Internet Desa.
+"""Fungsi pembentukan insight untuk dashboard Internet Desa."""
 
-Aturan wajib: SEMUA kalimat insight di sini dihasilkan dari hasil
-perhitungan `utils/analysis.py` -- tidak ada nama kabupaten, ISP, angka,
-atau kesimpulan yang ditulis manual (hardcoded). Ketika dataset yang
-diunggah berubah, kalimat insight otomatis mengikuti hasil hitung yang
-baru.
-
-Pola setiap fungsi: data -> panggil fungsi analysis -> ambil nilai
-ekstrem/relevan -> susun kalimat.
-"""
+import pandas as pd
 
 from utils import analysis as an
 
-
-def insight_kondisi_terbanyak(df):
-    """
-    Contoh pola: data -> groupby Hasil Evaluasi -> hitung proporsi ->
-    ambil kategori dengan proporsi tertinggi -> generate kalimat.
-    """
+def insight_kondisi_terbanyak(df: pd.DataFrame) -> str:
+    """Mencari kategori hasil evaluasi yang paling banyak."""
     dist = an.distribusi_hasil_evaluasi(df)
+
     if dist.empty:
-        return None
+        return "Belum ada data hasil evaluasi."
 
-    baris_teratas = dist.iloc[0]
-    return (
-        f"Dari seluruh lokasi yang tercatat, kondisi **{baris_teratas['Hasil Evaluasi']}** "
-        f"adalah yang paling banyak ditemukan, mencakup {baris_teratas['Persentase']:.1f}% "
-        f"dari total {int(dist['Jumlah'].sum()):,} lokasi."
-    )
-
-
-def insight_kabupaten_bermasalah_tertinggi(df):
-    """
-    Insight Kabupaten dengan proporsi Desa Bermasalah tertinggi.
-
-    Desa Bermasalah hanya:
-    TIDAK AKTIF dan BELUM TERPASANG.
-    """
-    tabel = an.proporsi_bermasalah_per_grup(df, "Kabupaten")
-
-    if tabel.empty:
-        return None
-
-    teratas = tabel.iloc[0]
+    row = dist.loc[dist["Jumlah"].idxmax()]
 
     return (
-        f"Kabupaten dengan proporsi **Desa Bermasalah** tertinggi adalah "
-        f"**{teratas['Kabupaten']}**, yaitu "
-        f"{teratas['Persentase Bermasalah']:.1f}% dari "
-        f"{int(teratas['Jumlah_Lokasi']):,} lokasi."
+        f"Kondisi terbanyak adalah {row['Hasil Evaluasi']} "
+        f"dengan {row['Jumlah']:,} lokasi ({row['Persentase']:.1f}%)."
     )
 
+def insight_kabupaten_bermasalah_tertinggi(df: pd.DataFrame) -> str:
+    """Mencari kabupaten dengan proporsi desa bermasalah tertinggi."""
+    dist = an.proporsi_bermasalah_per_grup(df, "Kabupaten")
 
-def insight_isp_bermasalah_tertinggi(df):
-    """
-    Insight ISP dengan proporsi Desa Bermasalah tertinggi.
-    """
-    tabel = an.proporsi_bermasalah_per_grup(df, "ISP")
+    if dist.empty:
+        return "Belum ada data kabupaten."
 
-    if tabel.empty:
-        return None
-
-    teratas = tabel.iloc[0]
+    row = dist.loc[dist["Persentase Bermasalah"].idxmax()]
 
     return (
-        f"ISP dengan proporsi **Desa Bermasalah** tertinggi adalah "
-        f"**{teratas['ISP']}**, yaitu "
-        f"{teratas['Persentase Bermasalah']:.1f}% dari "
-        f"{int(teratas['Jumlah_Lokasi']):,} lokasi yang dilayani."
+        f"Kabupaten dengan proporsi desa bermasalah tertinggi adalah "
+        f"{row['Kabupaten']} dengan {row['Persentase Bermasalah']:.1f}% "
+        f"({row['Jumlah_Bermasalah']:,} dari {row['Jumlah_Lokasi']:,} lokasi)."
     )
 
+def insight_isp_bermasalah_tertinggi(df: pd.DataFrame) -> str:
+    """Mencari ISP dengan proporsi desa bermasalah tertinggi."""
+    dist = an.proporsi_bermasalah_per_grup(df, "ISP")
 
-def insight_periode_terbaru_penggunaan(df):
-    """
-    Pola: data -> ambil periode kronologis terbaru YANG DATANYA CUKUP
-    memadai untuk dibaca sebagai gambaran umum -> hitung distribusi
-    Penggunaan pada periode itu -> ambil kategori tertinggi -> generate
-    kalimat.
+    if dist.empty:
+        return "Belum ada data ISP."
 
-    Sumber data tidak memiliki panel lengkap: sebagian periode (biasanya
-    bulan yang paling baru) bisa saja baru tersurvei di sebagian kecil
-    lokasi. Periode dengan jumlah lokasi tercatat kurang dari
-    `AMBANG_MINIMAL_PROPORSI_LOKASI` dari total lokasi dilewati agar
-    insight tidak menyimpulkan sesuatu dari sampel yang terlalu kecil.
-    Jumlah lokasi yang mendasari insight selalu disebutkan secara
-    eksplisit di kalimatnya, supaya pembaca bisa menilai sendiri
-    keterwakilannya.
-    """
-    AMBANG_MINIMAL_PROPORSI_LOKASI = 0.3
+    row = dist.loc[dist["Persentase Bermasalah"].idxmax()]
 
-    observasi_per_periode = an.jumlah_observasi_per_periode(df)
-    if observasi_per_periode.empty:
-        return None
+    return (
+        f"ISP dengan proporsi desa bermasalah tertinggi adalah "
+        f"{row['ISP']} dengan {row['Persentase Bermasalah']:.1f}% "
+        f"({row['Jumlah_Bermasalah']:,} dari {row['Jumlah_Lokasi']:,} lokasi)."
+    )
 
-    total_lokasi = df["Location ID"].nunique()
-    ambang_jumlah = total_lokasi * AMBANG_MINIMAL_PROPORSI_LOKASI
-
-    kandidat = observasi_per_periode[
-        observasi_per_periode["Jumlah Lokasi Tercatat"] >= ambang_jumlah
-    ]
-    if kandidat.empty:
-        # Tidak ada periode dengan data cukup representatif -- lebih
-        # baik tidak menyimpulkan apa pun daripada menyesatkan.
-        return None
-
-    periode_terpilih = kandidat["Periode Urutan"].max()
-
+def insight_periode_terbaru_penggunaan(df: pd.DataFrame) -> str:
+    """Mencari periode terbaru yang memiliki data penggunaan yang representatif."""
     tren = an.tren_penggunaan_bulanan(df)
-    data_periode = tren[tren["Periode Urutan"] == periode_terpilih]
-    label_periode = data_periode["Periode Label"].iloc[0]
-    jumlah_lokasi_periode = int(
-        observasi_per_periode.loc[
-            observasi_per_periode["Periode Urutan"] == periode_terpilih,
-            "Jumlah Lokasi Tercatat",
-        ].iloc[0]
-    )
-    teratas = data_periode.sort_values("Persentase", ascending=False).iloc[0]
 
-    return (
-        f"Pada periode {label_periode} (berdasarkan {jumlah_lokasi_periode} lokasi yang "
-        f"sudah tercatat pada periode tersebut), kategori penggunaan terbanyak adalah "
-        f"**{teratas['Penggunaan']}** ({teratas['Persentase']:.1f}% dari lokasi tercatat)."
-    )
+    if tren.empty:
+        return "Belum ada data penggunaan bulanan."
 
-
-def insight_lokasi_prioritas(df):
-    """
-    Insight lokasi prioritas berdasarkan definisi Desa Bermasalah.
-    """
-    lp = an.lokasi_prioritas(df)
-
-    if lp.empty:
-        return None
-
-    jumlah_bermasalah = int(lp["Desa Bermasalah"].sum())
-    total_lokasi = len(lp)
-
-    selalu_bermasalah = int(
-        (
-            lp["Desa Bermasalah"]
-            & (
-                lp["Persentase Periode Bermasalah"] == 100
-            )
-        ).sum()
-    )
-
-    persentase = (
-        jumlah_bermasalah / total_lokasi * 100
-        if total_lokasi
-        else 0
-    )
-
-    return (
-        f"Terdapat **{jumlah_bermasalah:,} Desa Bermasalah** "
-        f"dari {total_lokasi:,} lokasi ({persentase:.1f}%). "
-        f"Desa Bermasalah hanya mencakup kategori "
-        f"**Tidak Aktif** dan **Belum Terpasang**. "
-        f"Dari jumlah tersebut, {selalu_bermasalah:,} lokasi "
-        f"memiliki penggunaan bermasalah pada seluruh periode "
-        f"yang tercatat."
-    )
-
-
-def insight_kualitas_data(df):
-    """
-    Insight transparansi kualitas data, bukan kondisi layanan --
-    supaya pengguna sadar keterbatasan data yang sedang dianalisis.
-    """
     total_lokasi = df["Location ID"].nunique()
-    lokasi_koordinat_bermasalah = (
-        df[df["Koordinat Valid"] != True]["Location ID"].nunique()  # noqa: E712
-    )
 
-    if lokasi_koordinat_bermasalah == 0:
-        return None
+    if total_lokasi == 0:
+        return "Belum ada data lokasi."
 
-    return (
-        f"Catatan kualitas data: {lokasi_koordinat_bermasalah} dari {total_lokasi} lokasi "
-        f"memiliki koordinat yang tidak valid/tidak wajar sehingga tidak ditampilkan pada peta "
-        f"(data lokasi tersebut tetap tersedia pada analisis lain)."
-    )
-
-
-def generate_all_insights(df):
-    """
-    Mengumpulkan seluruh insight yang berhasil dihitung (melewati
-    fungsi-fungsi di atas), melewati yang bernilai None (misalnya
-    karena data kosong setelah difilter).
-    """
-    fungsi_insight = [
-        insight_kondisi_terbanyak,
-        insight_kabupaten_bermasalah_tertinggi,
-        insight_isp_bermasalah_tertinggi,
-        insight_periode_terbaru_penggunaan,
-        insight_lokasi_prioritas,
-        insight_kualitas_data,
+    # Jumlah observasi per periode berasal dari fungsi khususnya,
+    # sehingga tidak bergantung pada kolom agregat distribusi kategori.
+    jumlah_observasi = an.jumlah_observasi_per_periode(df)
+    batas_minimum = total_lokasi * 0.30
+    periode_valid = jumlah_observasi[
+        jumlah_observasi["Jumlah Lokasi Tercatat"] >= batas_minimum
     ]
 
-    hasil = []
-    for fungsi in fungsi_insight:
-        teks = fungsi(df)
-        if teks:
-            hasil.append(teks)
+    if periode_valid.empty:
+        return "Belum ada periode dengan data penggunaan yang cukup."
 
-    return hasil
+    periode_terbaru = periode_valid.iloc[-1]
+    periode_urutan = periode_terbaru["Periode Urutan"]
+    periode = periode_terbaru["Periode Label"]
+    data_periode = df[df["Periode Urutan"] == periode_urutan]
+    dist = an.distribusi_penggunaan(data_periode)
+
+    if dist.empty:
+        return f"Periode terbaru dengan data cukup adalah {periode}."
+
+    row = dist.loc[dist["Jumlah"].idxmax()]
+
+    return (
+        f"Periode terbaru dengan data yang cukup adalah {periode}, "
+        f"dengan {periode_terbaru['Jumlah Lokasi Tercatat']:,} observasi. "
+        f"Kategori penggunaan terbanyak adalah {row['Penggunaan']} "
+        f"sebanyak {row['Jumlah']:,} ({row['Persentase']:.1f}%)."
+    )
+
+def insight_lokasi_prioritas(df: pd.DataFrame) -> str:
+    """Meringkas jumlah lokasi yang masuk daftar prioritas."""
+    prioritas = an.lokasi_prioritas(df)
+
+    if prioritas.empty:
+        return "Belum ada lokasi yang dapat dianalisis sebagai prioritas."
+
+    total = len(prioritas)
+    desa_bermasalah = prioritas["Desa Bermasalah"].sum()
+    usage_bermasalah = (
+        prioritas["Jumlah_Periode_Penggunaan_Bermasalah"] > 0
+    ).sum()
+
+    return (
+        f"Terdapat {total:,} lokasi dalam daftar prioritas. "
+        f"{desa_bermasalah:,} lokasi termasuk Desa Bermasalah "
+        f"(TIDAK AKTIF atau BELUM TERPASANG), sedangkan "
+        f"{usage_bermasalah:,} lokasi memiliki penggunaan bermasalah "
+        f"pada setidaknya satu periode."
+    )
+
+def insight_kualitas_data(df: pd.DataFrame) -> str:
+    """Meringkas kualitas koordinat dan kelengkapan data."""
+    if df.empty:
+        return "Data belum tersedia."
+
+    total_lokasi = df["Location ID"].nunique()
+
+    if total_lokasi == 0:
+        return "Belum ada lokasi yang dapat dianalisis."
+
+    snapshot = an.get_location_snapshot(df)
+
+    if snapshot.empty:
+        return "Belum ada data lokasi yang dapat dianalisis."
+
+    koordinat_valid = snapshot["Koordinat Valid"].sum()
+    persentase_koordinat = koordinat_valid / total_lokasi * 100
+
+    return (
+        f"Sebanyak {koordinat_valid:,} dari {total_lokasi:,} lokasi "
+        f"({persentase_koordinat:.1f}%) memiliki koordinat yang valid "
+        f"untuk kebutuhan pemetaan."
+    )
+
+def generate_all_insights(df: pd.DataFrame) -> list[str]:
+    """Menghasilkan seluruh insight utama dashboard."""
+    return [
+        insight_kondisi_terbanyak(df),
+        insight_kabupaten_bermasalah_tertinggi(df),
+        insight_isp_bermasalah_tertinggi(df),
+        insight_periode_terbaru_penggunaan(df),
+        insight_lokasi_prioritas(df),
+        insight_kualitas_data(df),
+    ]
